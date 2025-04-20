@@ -119,7 +119,7 @@ namespace ach
          * @brief Construct a new Atomic object
          * @param desired Initial value
          */
-        explicit constexpr atomic(T desired = T()) noexcept : v(desired) {}
+        constexpr atomic(T desired = T()) noexcept : v(desired) {}
 
         /**
          * @brief Load the current value with optimized memory ordering

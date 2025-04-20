@@ -52,7 +52,7 @@ namespace ach
     template <typename T>
     T fetch_add(atomic<T>& atom, T value) noexcept 
     {
-        static_assert(std::is_integral<T>::value || std::is_pointer<T>::value,
+        static_assert(std::is_integral_v<T> || std::is_pointer_v<T>,
                         "fetch_add is only available for integral and pointer types");
     #ifdef ACH_ARCH_X86
         /* on x86, RMW operations already provide strong ordering guarantees */
@@ -73,7 +73,7 @@ namespace ach
     template <typename T>
     T fetch_sub(atomic<T>& atom, T value) noexcept 
     {
-        static_assert(std::is_integral<T>::value || std::is_pointer<T>::value,
+        static_assert(std::is_integral_v<T> || std::is_pointer_v<T>,
                       "fetch_sub is only available for integral and pointer types");
     #ifdef ACH_ARCH_X86
         return atom.fetch_sub(value, memory_order::relaxed);
@@ -141,10 +141,10 @@ namespace ach
       * @return T The value after decrement
       */
     template <typename T>
-    T decrement_optimal(atomic<T>& atom) noexcept 
+    T decrement(atomic<T>& atom) noexcept
     {
-        static_assert(std::is_integral<T>::value, "decrement is only available for integral types");
-        return fetch_sub_optimal(atom, static_cast<T>(1)) - static_cast<T>(1);
+        static_assert(std::is_integral_v<T>, "decrement is only available for integral types");
+        return fetch_sub(atom, static_cast<T>(1)) - static_cast<T>(1);
     }
      
     /**

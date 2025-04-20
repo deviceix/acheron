@@ -4,7 +4,7 @@
 #include <cstring>
 #include <random>
 #include <vector>
-#include <acheron/cstring>
+#include <acheron/__cstring/__memops.hpp>
 #include <gtest/gtest.h>
 
 static constexpr std::size_t BLOCK_SIZE = 4096;

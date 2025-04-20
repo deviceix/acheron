@@ -1,3 +1,5 @@
+# this file is a part of Acheron library which is under MIT license; see LICENSE for more info
+
 cmake_minimum_required(VERSION 3.30)
 project(acheron)
 
@@ -31,6 +33,8 @@ if (ACHERON_BUILD_TEST)
     )
 
     add_executable(${ACHERON_TEST}
+            tests/atomic/atomic.cpp
+            tests/atomic/atomic_ops.cpp
             tests/cstring/memops.cpp
             tests/cstring/strops.cpp
     )
