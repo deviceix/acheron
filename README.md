@@ -10,6 +10,7 @@ Acheron currently implements the following libraries
 
 - [X] `atomic`
 - [X] `cstring`
+- [X] `string`
 
 Below are libraries that are planned to be included
 
@@ -19,8 +20,6 @@ Below are libraries that are planned to be included
 - [ ] `list`
 - [ ] `map`
 - [ ] `stack`
-- [ ] `string`
-- [ ] `string_view`
 - [ ] `queue`
 - [ ] `unordered_map`
 - [ ] `vector`

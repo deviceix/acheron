@@ -147,7 +147,7 @@ TEST_F(AtomicOpsTestFixture, DoubleCheckedInit)
 
 	std::vector<std::thread> threads;
 	threads.reserve(NUM_THREADS);
-	for (int i = 0; i < NUM_THREADS; ++i)
+	for (auto i = 0; i < NUM_THREADS; ++i)
 	{
 		threads.emplace_back([&]
 		{
@@ -160,9 +160,7 @@ TEST_F(AtomicOpsTestFixture, DoubleCheckedInit)
 	}
 
 	for (auto &t: threads)
-	{
 		t.join();
-	}
 
 	EXPECT_EQ(shared_value, 123);
 	EXPECT_TRUE(ach::consume_load(init_flag));

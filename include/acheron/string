@@ -1,0 +1,888 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <stdexcept>
+#include <string_view>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+   template<typename T>
+   struct is_character : std::bool_constant<::std::is_same_v<char, std::remove_cv_t<T> >
+                                            || ::std::is_same_v<signed char, std::remove_cv_t<T> >
+                                            || ::std::is_same_v<unsigned char, std::remove_cv_t<T> >
+                                            || ::std::is_same_v<wchar_t, std::remove_cv_t<T> >
+                                            || ::std::is_same_v<char8_t, std::remove_cv_t<T> >
+                                            || ::std::is_same_v<char16_t, std::remove_cv_t<T> >
+                                            || ::std::is_same_v<char32_t, std::remove_cv_t<T> >> {};
+
+   template<typename T>
+   constexpr bool is_character_v = is_character<T>::value;
+
+   template<typename T>
+   concept character = is_character_v<T>;
+
+   template<character CharT,
+      class Traits = std::char_traits<CharT>,
+      class Allocator = allocator<CharT> >
+   class alignas(alignof(int *)) basic_string
+   {
+   public:
+      using traits_type = Traits;
+      using value_type = CharT;
+      using allocator_type = Allocator;
+      using size_type = typename std::allocator_traits<Allocator>::size_type;
+      using difference_type = typename std::allocator_traits<Allocator>::difference_type;
+      using reference = value_type &;
+      using const_reference = value_type const &;
+      using pointer = typename std::allocator_traits<Allocator>::pointer;
+      using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+      using iterator = pointer;
+      using const_iterator = const_pointer;
+      using reverse_iterator = std::reverse_iterator<iterator>;
+      using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+      static constexpr size_type npos = -1;
+
+      constexpr bool empty() const noexcept
+      {
+         return sz() == 0;
+      }
+
+      constexpr size_t size() const noexcept
+      {
+         return sz();
+      }
+
+      constexpr size_t length() const noexcept
+      {
+         return sz();
+      }
+
+      constexpr size_type max_size() const noexcept
+      {
+         return size_type(-1) / sizeof(CharT) / 2;
+      }
+
+      constexpr size_type capacity() const noexcept
+      {
+         if (is_long_str())
+         {
+            auto &&ls = storage.long_string;
+            return ls.last - ls.begin - 1; /* - '\0' */
+         }
+         return short_string_max;
+      }
+
+      constexpr void shrink_to_fit() noexcept
+      {
+         if (size() <= short_string_max && is_long_str())
+         {
+            auto ls = storage.long_string;
+
+            /* copy data from long string to short string */
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+            if consteval
+#else
+             if (std::is_constant_evaluated())
+#endif
+            {
+               std::copy(ls.begin, ls.end, storage.short_string.data());
+            }
+            else
+            {
+               std::memcpy(storage.short_string.data(), ls.begin, (ls.end - ls.begin) * sizeof(CharT));
+            }
+
+            /* deallocate long string memory */
+            dealloc(ls);
+
+            /* update size flag */
+            size_flag = static_cast<uint8_t>(ls.end - ls.begin);
+         }
+      }
+
+      constexpr const_pointer data() const noexcept
+      {
+         return begin();
+      }
+
+      constexpr pointer data() noexcept
+      {
+         return begin();
+      }
+
+      constexpr const_pointer c_str() const noexcept
+      {
+         return begin();
+      }
+
+      constexpr const_reference at(size_type pos) const
+      {
+         if (pos >= size())
+            throw std::out_of_range { exception_string };
+
+         return *(begin() + pos);
+      }
+
+      constexpr reference at(size_type pos)
+      {
+         return const_cast<reference>(const_cast<basic_string const &>(*this).at(pos));
+      }
+
+      constexpr const_reference operator[](size_type pos) const noexcept
+      {
+         return *(begin() + pos);
+      }
+
+      constexpr reference operator[](size_type pos) noexcept
+      {
+         return const_cast<reference>(const_cast<basic_string const &>(*this)[pos]);
+      }
+
+      constexpr const_reference front() const noexcept
+      {
+         return *begin();
+      }
+
+      constexpr reference front() noexcept
+      {
+         return const_cast<reference>(const_cast<basic_string const &>(*this).front());
+      }
+
+      constexpr const_reference back() const noexcept
+      {
+         return *(end() - 1);
+      }
+
+      constexpr reference back() noexcept
+      {
+         return const_cast<reference>(const_cast<basic_string const &>(*this).back());
+      }
+
+      constexpr iterator begin() noexcept
+      {
+         return is_long_str() ? storage.long_string.begin : storage.short_string.data();
+      }
+
+      constexpr const_iterator begin() const noexcept
+      {
+         return is_long_str() ? storage.long_string.begin : storage.short_string.data();
+      }
+
+      constexpr iterator end() noexcept
+      {
+         return begin() + size();
+      }
+
+      constexpr const_iterator end() const noexcept
+      {
+         return begin() + size();
+      }
+
+      constexpr const_iterator cbegin() const noexcept
+      {
+         return begin();
+      }
+
+      constexpr const_iterator cend() const noexcept
+      {
+         return end();
+      }
+
+      constexpr reverse_iterator rbegin() noexcept
+      {
+         return reverse_iterator(end());
+      }
+
+      constexpr const_reverse_iterator rbegin() const noexcept
+      {
+         return const_reverse_iterator(end());
+      }
+
+      constexpr reverse_iterator rend() noexcept
+      {
+         return reverse_iterator(begin());
+      }
+
+      constexpr const_reverse_iterator rend() const noexcept
+      {
+         return const_reverse_iterator(begin());
+      }
+
+      constexpr const_reverse_iterator crbegin() const noexcept
+      {
+         return rbegin();
+      }
+
+      constexpr const_reverse_iterator crend() const noexcept
+      {
+         return rend();
+      }
+
+      constexpr void reserve(size_type new_cap)
+      {
+         if (capacity() >= new_cap)
+            return;
+
+         if (is_long_str())
+         {
+            auto ls = storage.long_string;
+            alloc_plus_one(new_cap);
+            fill(ls.begin, ls.end);
+            auto size = ls.end - ls.begin;
+            dealloc(ls);
+            resz(size);
+         }
+         else
+         {
+            auto ss = storage.short_string;
+            auto size = size_flag;
+            alloc_plus_one(new_cap);
+            fill(ss.data(), ss.data() + size);
+            resz(size);
+         }
+      }
+
+      constexpr void resize(size_type count)
+      {
+         resize(count, CharT {});
+      }
+
+      constexpr void resize(size_type count, CharT ch)
+      {
+         auto size = sz();
+         if (count > size)
+         {
+            reserve(count);
+            std::fill(begin() + size, begin() + count, ch);
+         }
+
+         resz(count);
+      }
+
+      constexpr void clear() noexcept
+      {
+         resz(0);
+      }
+
+      constexpr void push_back(CharT ch)
+      {
+         auto size = sz();
+         if (capacity() == size)
+            reserve(size * 2 - size / 2); /* 1.5x growth; way better than 2x */
+
+         *(end()) = ch;
+         resz(size + 1);
+      }
+
+      constexpr void pop_back() noexcept
+      {
+         resz(size() - 1);
+      }
+
+      constexpr basic_string &append(size_type count, CharT ch)
+      {
+         auto size = sz();
+         reserve(size + count);
+         std::fill(begin() + size, begin() + size + count, ch);
+         resz(size + count);
+         return *this;
+      }
+
+      constexpr basic_string &append(const basic_string &str)
+      {
+         return append(str.data(), str.size());
+      }
+
+      constexpr basic_string &append(const basic_string &str, size_type pos, size_type count = npos)
+      {
+         auto str_size = str.size();
+
+         if (pos > str_size)
+            throw std::out_of_range { exception_string };
+
+         count = std::min(count, str_size - pos);
+         return append(str.data() + pos, count);
+      }
+
+      constexpr basic_string &append(const CharT *s, size_type count)
+      {
+         auto size = sz();
+         reserve(size + count);
+         fill(s, s + count, begin() + size);
+         resz(size + count);
+         return *this;
+      }
+
+      constexpr basic_string &append(const CharT *s)
+      {
+         return append(s, traits_type::length(s));
+      }
+
+      constexpr basic_string &operator+=(const basic_string &str)
+      {
+         return append(str);
+      }
+
+      constexpr basic_string &operator+=(CharT ch)
+      {
+         push_back(ch);
+         return *this;
+      }
+
+      constexpr basic_string &operator+=(const CharT *s)
+      {
+         return append(s);
+      }
+
+      constexpr basic_string &insert(size_type index, size_type count, CharT ch)
+      {
+         auto size = sz();
+
+         if (index > size)
+            throw std::out_of_range { exception_string };
+
+         reserve(size + count);
+         auto start = begin() + index;
+
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+         if consteval
+#else
+          if (std::is_constant_evaluated())
+#endif
+         {
+            std::copy_backward(start, begin() + size, begin() + size + count);
+         }
+         else
+         {
+            std::memmove(start + count, start, (size - index) * sizeof(CharT));
+         }
+
+         std::fill(start, start + count, ch);
+         resz(size + count);
+         return *this;
+      }
+
+      constexpr basic_string &insert(size_type index, const CharT *s)
+      {
+         return insert(index, s, traits_type::length(s));
+      }
+
+      constexpr basic_string &insert(size_type index, const CharT *s, size_type count)
+      {
+         auto size = sz();
+
+         if (index > size)
+            throw std::out_of_range { exception_string };
+
+         reserve(size + count);
+         auto start = begin() + index;
+
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+         if consteval
+#else
+          if (std::is_constant_evaluated())
+#endif
+         {
+            std::copy_backward(start, begin() + size, begin() + size + count);
+            std::copy(s, s + count, start);
+         }
+         else
+         {
+            std::memmove(start + count, start, (size - index) * sizeof(CharT));
+            std::memcpy(start, s, count * sizeof(CharT));
+         }
+
+         resz(size + count);
+         return *this;
+      }
+
+      constexpr basic_string &insert(size_type index, const basic_string &str)
+      {
+         return insert(index, str.data(), str.size());
+      }
+
+      constexpr basic_string &erase(size_type index = 0, size_type count = npos)
+      {
+         auto size = sz();
+
+         if (index > size)
+            throw std::out_of_range { exception_string };
+
+         count = std::min(count, size - index);
+
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+         if consteval
+#else
+          if (std::is_constant_evaluated())
+#endif
+         {
+            std::copy(begin() + index + count, begin() + size, begin() + index);
+         }
+         else
+         {
+            std::memmove(begin() + index, begin() + index + count, (size - index - count) * sizeof(CharT));
+         }
+
+         resz(size - count);
+         return *this;
+      }
+
+      constexpr basic_string &replace(size_type pos, size_type count, const basic_string &str)
+      {
+         return replace(pos, count, str.data(), str.size());
+      }
+
+      constexpr basic_string &replace(size_type pos, size_type count, const CharT *s, size_type count2)
+      {
+         auto size = sz();
+
+         if (pos > size)
+            throw std::out_of_range { exception_string };
+
+         count = std::min(count, size - pos);
+         auto new_size = size - count + count2;
+
+         if (capacity() < new_size)
+            reserve(new_size);
+
+         if (count != count2)
+         {
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+            if consteval
+#else
+             if (std::is_constant_evaluated())
+#endif
+            {
+               std::copy_backward(begin() + pos + count, begin() + size, begin() + new_size);
+            }
+            else
+            {
+               std::memmove(begin() + pos + count2, begin() + pos + count, (size - pos - count) * sizeof(CharT));
+            }
+         }
+
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+         if consteval
+#else
+          if (std::is_constant_evaluated())
+#endif
+         {
+            std::copy(s, s + count2, begin() + pos);
+         }
+         else
+         {
+            std::memcpy(begin() + pos, s, count2 * sizeof(CharT));
+         }
+
+         resz(new_size);
+         return *this;
+      }
+
+      constexpr basic_string &replace(size_type pos, size_type count, const CharT *s)
+      {
+         return replace(pos, count, s, traits_type::length(s));
+      }
+
+      constexpr operator std::basic_string_view<CharT, Traits>() const noexcept
+      {
+         return std::basic_string_view<CharT, Traits>(data(), size());
+      }
+
+      constexpr void swap(basic_string &other) noexcept
+      {
+         std::swap(size_flag, other.size_flag);
+         std::swap(storage, other.storage);
+
+         if constexpr (std::allocator_traits<Allocator>::propagate_on_container_swap::value)
+            std::swap(alloc, other.alloc);
+      }
+
+      constexpr allocator_type get_allocator() const noexcept
+      {
+         return alloc;
+      }
+
+      constexpr basic_string() noexcept = default;
+
+      constexpr explicit basic_string(const Allocator &alloc) noexcept : alloc(alloc), storage {} {}
+
+      constexpr basic_string(size_type count, CharT ch, const Allocator &alloc = Allocator()) : alloc(alloc), storage {}
+      {
+         assign(count, ch);
+      }
+
+      constexpr basic_string(const basic_string &other, size_type pos, size_type count = npos,
+                             const Allocator &alloc = Allocator()) : alloc(alloc), storage {}
+      {
+         auto other_size = other.size();
+
+         if (pos > other_size)
+            throw std::out_of_range { exception_string };
+
+         count = std::min(count, other_size - pos);
+         assign(other.data() + pos, count);
+      }
+
+      constexpr basic_string(const CharT *s, size_type count, const Allocator &alloc = Allocator()) : alloc(alloc),
+         storage {}
+      {
+         assign(s, count);
+      }
+
+      constexpr basic_string(const CharT *s, const Allocator &alloc = Allocator()) : alloc(alloc), storage {}
+      {
+         assign(s);
+      }
+
+      template<class InputIt>
+      constexpr basic_string(InputIt first, InputIt last, const Allocator &alloc = Allocator()) : alloc(alloc),
+         storage {}
+      {
+         assign(first, last);
+      }
+
+      constexpr basic_string(const basic_string &other) : alloc(std::allocator_traits<
+                                                             Allocator>::select_on_container_copy_construction(
+                                                             other.alloc)),
+                                                          storage {}
+      {
+         assign(other);
+      }
+
+      constexpr basic_string(const basic_string &other, const Allocator &alloc) : alloc(alloc), storage {}
+      {
+         assign(other);
+      }
+
+      constexpr basic_string(basic_string &&other) noexcept : alloc(std::move(other.alloc)), storage {}
+      {
+         swap(other);
+      }
+
+      constexpr basic_string(basic_string &&other, const Allocator &alloc) : alloc(alloc), storage {}
+      {
+         if (this->alloc == other.alloc)
+         {
+            swap(other);
+         }
+         else
+         {
+            assign(other);
+         }
+      }
+
+      constexpr basic_string(std::initializer_list<CharT> ilist,
+                             const Allocator &alloc = Allocator()) : alloc(alloc), storage {}
+      {
+         assign(ilist.begin(), ilist.size());
+      }
+
+      constexpr ~basic_string()
+      {
+         if (is_long_str())
+            dealloc(storage.long_string);
+      }
+
+      constexpr basic_string &operator=(const basic_string &other)
+      {
+         if (this != &other)
+         {
+            if constexpr (std::allocator_traits<Allocator>::propagate_on_container_copy_assignment::value)
+            {
+               if (alloc != other.alloc)
+               {
+                  clear();
+                  if (is_long_str())
+                     dealloc(storage.long_string);
+                  alloc = other.alloc;
+               }
+            }
+            assign(other);
+         }
+         return *this;
+      }
+
+      constexpr basic_string &operator=(basic_string &&other) noexcept(
+         std::allocator_traits<Allocator>::propagate_on_container_move_assignment::value ||
+         std::allocator_traits<Allocator>::is_always_equal::value)
+      {
+         if (this != &other)
+         {
+            if constexpr (std::allocator_traits<Allocator>::propagate_on_container_move_assignment::value)
+            {
+               clear();
+               if (is_long_str())
+                  dealloc(storage.long_string);
+               alloc = std::move(other.alloc);
+               swap(other);
+            }
+            else if (alloc == other.alloc)
+               swap(other);
+            else
+               assign(other);
+         }
+         return *this;
+      }
+
+      constexpr basic_string &operator=(const CharT *s)
+      {
+         return assign(s);
+      }
+
+      constexpr basic_string &operator=(CharT ch)
+      {
+         clear();
+         push_back(ch);
+         return *this;
+      }
+
+      constexpr basic_string &operator=(std::initializer_list<CharT> ilist)
+      {
+         return assign(ilist.begin(), ilist.size());
+      }
+
+      constexpr basic_string &assign(size_type count, CharT ch)
+      {
+         clear();
+         return append(count, ch);
+      }
+
+      constexpr basic_string &assign(const basic_string &str)
+      {
+         if (this != &str)
+         {
+            clear();
+            return append(str);
+         }
+         return *this;
+      }
+
+      constexpr basic_string &assign(const basic_string &str, size_type pos, size_type count = npos)
+      {
+         clear();
+         return append(str, pos, count);
+      }
+
+      constexpr basic_string &assign(basic_string &&str) noexcept
+      {
+         swap(str);
+         return *this;
+      }
+
+      constexpr basic_string &assign(const CharT *s, size_type count)
+      {
+         clear();
+         return append(s, count);
+      }
+
+      constexpr basic_string &assign(const CharT *s)
+      {
+         clear();
+         return append(s);
+      }
+
+      template<class InputIt>
+      constexpr basic_string &assign(InputIt first, InputIt last)
+      {
+         clear();
+         for (; first != last; ++first)
+            push_back(*first);
+         return *this;
+      }
+
+      constexpr basic_string &assign(std::initializer_list<CharT> ilist)
+      {
+         clear();
+         return append(ilist.begin(), ilist.size());
+      }
+
+   private:
+      static constexpr size_t short_string_max = { sizeof(CharT *) * 4 / sizeof(CharT) - 2 };
+
+      struct long_string_type
+      {
+         CharT *begin = {};
+         CharT *end = {};
+         CharT *last = {};
+      };
+
+      /* a kind reminder that + 1 is for the null terminator */
+      using short_string_type = std::array<CharT, short_string_max + 1>;
+
+      union storage_type
+      {
+         short_string_type short_string;
+         long_string_type long_string;
+      };
+
+      /* note:
+       * `size_flag` > 0 -> short string; length is size_flag
+       * `size_flag` = 0 -> empty string
+       * `size_flag` = MAX: long string; length is `end` - `begin` of `long_string_type`
+       */
+      alignas(alignof(CharT)) uint8_t size_flag = {};
+      [[no_unique_address]] Allocator alloc;
+      storage_type storage;
+
+      using allocator_trait = std::allocator_traits<Allocator>;
+      static inline char exception_string[] = "parameter is out of range";
+
+      constexpr bool is_long_str() const noexcept
+      {
+         return size_flag == static_cast<decltype(size_flag)>(-1);
+      }
+
+      constexpr bool is_short_str() const noexcept
+      {
+         return size_flag != static_cast<decltype(size_flag)>(-1);
+      }
+
+      constexpr bool is_empty() const noexcept
+      {
+         return !size_flag;
+      }
+
+      constexpr size_t sz() const noexcept
+      {
+         if (is_long_str())
+         {
+            auto &&ls = storage.long_string;
+            return ls.end - ls.begin;
+         }
+         return size_flag;
+      }
+
+      constexpr void resz(size_type n) noexcept
+      {
+         if (is_long_str())
+         {
+            auto &&ls = storage.long_string;
+            ls.end = ls.begin + n;
+            *(ls.end) = CharT {};
+         }
+         else
+         {
+            size_flag = static_cast<uint8_t>(n);
+            storage.short_string[n] = CharT {};
+         }
+      }
+
+      constexpr void alloc_plus_one(size_type n)
+      {
+         if (n <= short_string_max && !is_long_str())
+         {
+            size_flag = static_cast<uint8_t>(n);
+            return;
+         }
+
+         ++n; /* for null terminator */
+         auto ptr = allocator_trait::allocate(alloc, n);
+         storage.long_string = { ptr, nullptr, ptr + n };
+         size_flag = static_cast<decltype(size_flag)>(-1);
+      }
+
+      constexpr void dealloc(long_string_type &ls) noexcept
+      {
+         allocator_trait::deallocate(alloc, ls.begin, ls.last - ls.begin);
+      }
+
+      constexpr void fill(const CharT *start, const CharT *finish)
+      {
+         fill(start, finish, begin());
+      }
+
+      constexpr void fill(const CharT *start, const CharT *finish, CharT *dest) noexcept
+      {
+#if defined(__cpp_if_consteval) && (__cpp_if_consteval >= 202106L)
+         if consteval
+#else
+          if (std::is_constant_evaluated())
+#endif
+         {
+            std::copy(start, finish, dest);
+         }
+         else
+         {
+            std::memcpy(dest, start, (finish - start) * sizeof(CharT));
+         }
+      }
+   };
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator==(const basic_string<CharT, Traits, Allocator> &lhs,
+                             const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      if (lhs.size() != rhs.size())
+         return false;
+      return Traits::compare(lhs.data(), rhs.data(), lhs.size()) == 0;
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator!=(const basic_string<CharT, Traits, Allocator> &lhs,
+                             const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      return !(lhs == rhs);
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator<(const basic_string<CharT, Traits, Allocator> &lhs,
+                            const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      size_t min_len = std::min(lhs.size(), rhs.size());
+      int result = Traits::compare(lhs.data(), rhs.data(), min_len);
+
+      if (result < 0)
+         return true;
+      if (result > 0)
+         return false;
+      return lhs.size() < rhs.size();
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator>(const basic_string<CharT, Traits, Allocator> &lhs,
+                            const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      return rhs < lhs;
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator<=(const basic_string<CharT, Traits, Allocator> &lhs,
+                             const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      return !(rhs < lhs);
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator>=(const basic_string<CharT, Traits, Allocator> &lhs,
+                             const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      return !(lhs < rhs);
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator==(const basic_string<CharT, Traits, Allocator> &lhs,
+                             const CharT *rhs) noexcept
+   {
+      return lhs == basic_string<CharT, Traits, Allocator>(rhs);
+   }
+
+   template<character CharT, class Traits, class Allocator>
+   constexpr bool operator==(const CharT *lhs,
+                             const basic_string<CharT, Traits, Allocator> &rhs) noexcept
+   {
+      return rhs == lhs;
+   }
+
+   using string = basic_string<char>;
+   using wstring = basic_string<wchar_t>;
+   using u8string = basic_string<char8_t>;
+   using u16string = basic_string<char16_t>;
+   using u32string = basic_string<char32_t>;
+}

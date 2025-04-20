@@ -40,6 +40,7 @@ if (ACHERON_BUILD_TEST)
             tests/cstring/memops.cpp
             tests/cstring/strops.cpp
             tests/memory/allocator.cpp
+            tests/string.cpp
     )
 
     target_include_directories(${ACHERON_TEST} PRIVATE
