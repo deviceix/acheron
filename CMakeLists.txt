@@ -1,0 +1,60 @@
+cmake_minimum_required(VERSION 3.30)
+project(acheron)
+
+option(ACHERON_BUILD_TEST "" ON)
+
+message(STATUS "Acheron Build Test: ${ACHERON_BUILD_TEST}")
+
+set(CMAKE_CXX_STANDARD 23)
+
+set(SOURCES
+        lib/stub.cpp
+)
+
+add_library(${PROJECT_NAME} STATIC ${SOURCES})
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# tests
+if (ACHERON_BUILD_TEST)
+    find_package(GTest REQUIRED)
+
+    enable_testing()
+    include(GoogleTest)
+
+    set(ACHERON_TEST ${PROJECT_NAME}-test)
+    set(SANITIZER_FLAGS
+            "-fsanitize=address,leak,undefined"
+            "-fno-omit-frame-pointer"
+            "-fno-sanitize-recover=all"
+    )
+
+    add_executable(${ACHERON_TEST}
+            tests/cstring/memops.cpp
+            tests/cstring/strops.cpp
+    )
+
+    target_include_directories(${ACHERON_TEST} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_compile_options(${ACHERON_TEST} PRIVATE
+            ${SANITIZER_FLAGS}
+    )
+
+    target_link_options(${ACHERON_TEST} PRIVATE
+            ${SANITIZER_FLAGS}
+    )
+
+    target_link_libraries(${ACHERON_TEST} PRIVATE
+            ${PROJECT_NAME}
+            GTest::GTest
+            GTest::Main
+    )
+
+    gtest_discover_tests(${ACHERON_TEST})
+endif()
+
+# benches
+
+# install
