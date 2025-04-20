@@ -5,7 +5,7 @@
 #include <limits>
 #include <memory>
 #include <acheron/__libdef.hpp>
-#if defined defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+#if defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
 /* we compile for Unix e.g. Linux, macOS and so on */
 #include <sys/mman.h>
 #elif defined(_WIN32) || defined(_WIN64)
