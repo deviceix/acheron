@@ -1,0 +1,6 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+#pragma once
+
+#include <acheron/__atomic/atomic_ops.hpp>
+#include <acheron/__atomic/atomic.hpp>
