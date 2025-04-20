@@ -28,6 +28,8 @@ if (ACHERON_BUILD_TEST)
     set(ACHERON_TEST ${PROJECT_NAME}-test)
     set(SANITIZER_FLAGS
             "-fsanitize=address,leak,undefined"
+            "-g"
+#           "-fsanitize=thread,undefined"
             "-fno-omit-frame-pointer"
             "-fno-sanitize-recover=all"
     )
@@ -37,6 +39,7 @@ if (ACHERON_BUILD_TEST)
             tests/atomic/atomic_ops.cpp
             tests/cstring/memops.cpp
             tests/cstring/strops.cpp
+            tests/memory/allocator.cpp
     )
 
     target_include_directories(${ACHERON_TEST} PRIVATE
