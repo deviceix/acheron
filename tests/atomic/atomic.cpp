@@ -1,9 +1,9 @@
 /* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
 
-#include <acheron/__atomic/atomic.hpp>
-#include <gtest/gtest.h>
 #include <thread>
 #include <vector>
+#include <acheron/__atomic/atomic.hpp>
+#include <gtest/gtest.h>
 
 class AtomicTestFixture : public testing::Test
 {
@@ -106,7 +106,8 @@ TEST_F(AtomicTestFixture, ABATest)
             std::this_thread::yield();
 
         const bool success = val.compare_exchange_strong(expected, 3,
-                                                  ach::memory_order::acq_rel);
+                                                  ach::memory_order::acq_rel,
+                                                  ach::memory_order::acquire);
         EXPECT_TRUE(success);
         EXPECT_EQ(val.load(), 3);
     });
