@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.30)
 project(acheron)
 
-option(ACHERON_BUILD_TEST "" ON)
+option(ACHERON_BUILD_TEST "Acheron Build Test" ON)
+option(ACHERON_BUILD_BENCHES "Acheron Build Bench" OFF)
 
 message(STATUS "Acheron Build Test: ${ACHERON_BUILD_TEST}")
 
