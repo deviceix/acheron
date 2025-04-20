@@ -5,17 +5,20 @@
 #include <limits>
 #include <memory>
 #include <acheron/__libdef.hpp>
-#if defined (TARGET_OS_UNIX) /* we compile for Unix e.g. Linux, macOS and so on */
+#if defined defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+/* we compile for Unix e.g. Linux, macOS and so on */
 #include <sys/mman.h>
-#else /* not supported at the moment, but will be soon; hopefully */
+#elif defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
 #error "Windows is not supported yet, but will be soon; hopefully"
+#else /* not supported at the moment, but will be soon; hopefully */
+#error "your OS not supported at the moment, but will be soon; hopefully"
 #endif
 
 namespace ach
 {
     /**
-     * @brief Standard-compliant memory allocator with pool-based allocation strategy
+     * @brief Memory allocator with pool-based allocation strategy
      *
      * @note This allocator implements the C++ standard allocator interface while providing
      *  optimized memory allocation through size-based pools for small allocations and
