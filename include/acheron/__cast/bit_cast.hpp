@@ -8,8 +8,8 @@
 namespace ach
 {
 	template<typename T, typename U>
-		requires std::is_trivially_copyable_v<T> &&
-			sizeof(T) == sizeof(U)
+		requires (std::is_trivially_copyable_v<T> &&
+			(sizeof(T) == sizeof(U)))
 	LIBACHERON constexpr T bit_cast(const U& src)
 	{
 		T dest;

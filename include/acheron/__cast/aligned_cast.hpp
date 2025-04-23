@@ -8,8 +8,8 @@
 namespace ach
 {
 	template<typename T, typename U>
-		requires std::is_pointer_v<T> &&
-				 std::is_pointer_v<U>
+		requires(std::is_pointer_v<T> &&
+				 std::is_pointer_v<U>)
 	LIBACHERON constexpr T aligned_cast(U ptr)
 	{
 		using Target = std::remove_pointer_t<T>;
