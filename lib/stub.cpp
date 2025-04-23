@@ -5,3 +5,4 @@
 #include <acheron/cstring>
 #include <acheron/memory>
 #include <acheron/string>
+#include <acheron/cast>
