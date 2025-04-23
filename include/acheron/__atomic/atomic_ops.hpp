@@ -150,7 +150,8 @@ namespace ach
     /**
      * @brief Helper for double-checked locking pattern
      * @tparam T Type to operate on
-     * @param atom Atomic flag to check
+     * @param initialized
+     * @param value
      * @param init_func Function to initialize value
      */
     template <typename T, typename Func>

@@ -49,11 +49,13 @@ namespace ach
 
       static constexpr size_type npos = -1;
 
+      [[nodiscard]]
       constexpr bool empty() const noexcept
       {
          return sz() == 0;
       }
 
+      [[nodiscard]]
       constexpr size_t size() const noexcept
       {
          return sz();

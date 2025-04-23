@@ -2,7 +2,8 @@
 
 /* nothing here; this is just for intellisense to work */
 #include <acheron/atomic>
+#include <acheron/cast>
 #include <acheron/cstring>
+#include <acheron/list>
 #include <acheron/memory>
 #include <acheron/string>
-#include <acheron/cast>

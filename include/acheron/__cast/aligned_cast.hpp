@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include <acheron/__libdef.hpp>
 #include <type_traits>
+#include <acheron/__libdef.hpp>
 
 namespace ach
 {
@@ -13,7 +13,7 @@ namespace ach
 	LIBACHERON constexpr T aligned_cast(U ptr)
 	{
 		using Target = std::remove_pointer_t<T>;
-		constexpr uintptr_t alignment = alignof(Target);
+		constexpr auto alignment = alignof(Target);
 		static_assert((reinterpret_cast<uintptr_t>(ptr) & (alignment - 1)) == 0,
 						  "[ach::aligned_cast]: pointer is not properly aligned for target type");
 

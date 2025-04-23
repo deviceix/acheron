@@ -6,9 +6,6 @@
 
 namespace ach
 {
-	/**
-	 *
-	 */
 	#define __ONES (~0UL / 0xFF)
 	#define __HIGHS (__ONES * 0x80)
 	#define __HAS_ZERO(x) (((x) - __ONES) & ~(x) & __HIGHS)

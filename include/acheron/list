@@ -1,0 +1,1046 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+// ReSharper disable CppNonExplicitConvertingConstructor
+#pragma once
+
+#include <utility>
+#include <initializer_list>
+#include <algorithm>
+#include <iterator>
+#include <functional>
+#include <limits>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+    template<typename T, typename Allocator = allocator<T> >
+    class list
+    {
+    public:
+        using value_type = T;
+        using allocator_type = Allocator;
+        using size_type = size_t;
+        using difference_type = ptrdiff_t;
+        using reference = value_type &;
+        using const_reference = const value_type &;
+        using pointer = typename std::allocator_traits<Allocator>::pointer;
+        using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+
+        struct node
+        {
+            node *prev = nullptr;
+            node *next = nullptr;
+            T data;
+
+            template<typename... Args>
+            node(Args &&... args) : data(std::forward<Args>(args)...) {}
+        };
+
+        /* constructors */
+        list(const Allocator &alloc = Allocator()) : allocator(alloc)
+        {
+            head.next = &head;
+            head.prev = &head;
+        }
+
+        list(const size_type count, const T &value = T(),
+             const Allocator &alloc = Allocator()) : list(alloc)
+        {
+            for (size_type i = 0; i < count; ++i)
+                push_back(value);
+        }
+
+        template<typename InputIt>
+        list(InputIt first, InputIt last, const Allocator &alloc = Allocator()) : list(alloc)
+        {
+            for (auto it = first; it != last; ++it)
+                push_back(*it);
+        }
+
+        list(const list &other) : list(other.get_allocator())
+        {
+            for (const auto &item: other)
+                push_back(item);
+        }
+
+        list(list &&other) noexcept : count(other.count), allocator(std::move(other.allocator))
+        {
+            if (other.empty())
+            {
+                head.next = &head;
+                head.prev = &head;
+            }
+            else
+            {
+                head.next = other.head.next;
+                head.prev = other.head.prev;
+                head.next->prev = &head;
+                head.prev->next = &head;
+
+                other.head.next = &other.head;
+                other.head.prev = &other.head;
+                other.count = 0;
+            }
+        }
+
+        list(std::initializer_list<T> init, const Allocator &alloc = Allocator()) : list(
+            init.begin(), init.end(), alloc) {}
+
+        ~list()
+        {
+            clear();
+        }
+
+        /* assignment operators */
+        list &operator=(const list &other)
+        {
+            if (this != &other)
+            {
+                clear();
+                for (const auto &item: other)
+                    push_back(item);
+            }
+            return *this;
+        }
+
+        list &operator=(list &&other) noexcept
+        {
+            if (this != &other)
+            {
+                clear();
+                if (!other.empty())
+                {
+                    head.next = other.head.next;
+                    head.prev = other.head.prev;
+                    head.next->prev = &head;
+                    head.prev->next = &head;
+                    count = other.count;
+
+                    other.head.next = &other.head;
+                    other.head.prev = &other.head;
+                    other.count = 0;
+                }
+                allocator = std::move(other.allocator);
+            }
+            return *this;
+        }
+
+        list &operator=(std::initializer_list<T> ilist)
+        {
+            clear();
+            for (const auto &item: ilist)
+                push_back(item);
+            return *this;
+        }
+
+        /* assign methods */
+        void assign(size_type count, const T &value)
+        {
+            clear();
+            for (size_type i = 0; i < count; ++i)
+                push_back(value);
+        }
+
+        template<typename InputIt>
+        void assign(InputIt first, InputIt last)
+        {
+            clear();
+            for (auto it = first; it != last; ++it)
+                push_back(*it);
+        }
+
+        void assign(std::initializer_list<T> ilist)
+        {
+            assign(ilist.begin(), ilist.end());
+        }
+
+        /* element access */
+        reference front()
+        {
+            return head.next->data;
+        }
+
+        const_reference front() const
+        {
+            return head.next->data;
+        }
+
+        reference back()
+        {
+            return head.prev->data;
+        }
+
+        const_reference back() const
+        {
+            return head.prev->data;
+        }
+
+        /* iterators */
+        class iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = T;
+            using pointer = T *;
+            using reference = T &;
+            using iterator_category = std::bidirectional_iterator_tag;
+
+            iterator(node *n) : current(n) {}
+
+            reference operator*()
+            {
+                return current->data;
+            }
+
+            const_reference operator*() const
+            {
+                return current->data;
+            }
+
+            pointer operator->()
+            {
+                return &(current->data);
+            }
+
+            iterator &operator++()
+            {
+                current = current->next;
+                return *this;
+            }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                current = current->next;
+                return tmp;
+            }
+
+            iterator &operator--()
+            {
+                current = current->prev;
+                return *this;
+            }
+
+            iterator operator--(int)
+            {
+                iterator tmp = *this;
+                current = current->prev;
+                return tmp;
+            }
+
+            bool operator==(const iterator &other) const
+            {
+                return current == other.current;
+            }
+
+            bool operator!=(const iterator &other) const
+            {
+                return current != other.current;
+            }
+
+            node *base() const
+            {
+                return current;
+            }
+
+        private:
+            node *current;
+            friend class list;
+        };
+
+        iterator begin()
+        {
+            return iterator(head.next);
+        }
+
+        iterator end()
+        {
+            return iterator(&head);
+        }
+
+        /* const iterator support */
+        class const_iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = T;
+            using pointer = const T *;
+            using reference = const T &;
+            using iterator_category = std::bidirectional_iterator_tag;
+
+            const_iterator(const node *n) : current(n) {}
+            const_iterator(const iterator &it) : current(it.current) {}
+
+            const_reference operator*() const
+            {
+                return current->data;
+            }
+
+            pointer operator->() const
+            {
+                return &(current->data);
+            }
+
+            const_iterator &operator++()
+            {
+                current = current->next;
+                return *this;
+            }
+
+            const_iterator operator++(int)
+            {
+                const_iterator tmp = *this;
+                current = current->next;
+                return tmp;
+            }
+
+            const_iterator &operator--()
+            {
+                current = current->prev;
+                return *this;
+            }
+
+            const_iterator operator--(int)
+            {
+                const_iterator tmp = *this;
+                current = current->prev;
+                return tmp;
+            }
+
+            bool operator==(const const_iterator &other) const
+            {
+                return current == other.current;
+            }
+
+            bool operator!=(const const_iterator &other) const
+            {
+                return current != other.current;
+            }
+
+            const node *base() const
+            {
+                return current;
+            }
+
+        private:
+            const node *current;
+            friend class list;
+        };
+
+        const_iterator begin() const
+        {
+            return const_iterator(head.next);
+        }
+
+        const_iterator end() const
+        {
+            return const_iterator(&head);
+        }
+
+        const_iterator cbegin() const
+        {
+            return begin();
+        }
+
+        const_iterator cend() const
+        {
+            return end();
+        }
+
+        /* reverse iterator support */
+        using reverse_iterator = std::reverse_iterator<iterator>;
+        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+        reverse_iterator rbegin()
+        {
+            return reverse_iterator(end());
+        }
+
+        const_reverse_iterator rbegin() const
+        {
+            return const_reverse_iterator(end());
+        }
+
+        reverse_iterator rend()
+        {
+            return reverse_iterator(begin());
+        }
+
+        const_reverse_iterator rend() const
+        {
+            return const_reverse_iterator(begin());
+        }
+
+        const_reverse_iterator crbegin() const
+        {
+            return rbegin();
+        }
+
+        const_reverse_iterator crend() const
+        {
+            return rend();
+        }
+
+        /* capacity */
+        [[nodiscard]] bool empty() const noexcept
+        {
+            return count == 0;
+        }
+
+        [[nodiscard]] size_type size() const noexcept
+        {
+            return count;
+        }
+
+        [[nodiscard]] static size_type max_size() noexcept
+        {
+            return std::numeric_limits<size_type>::max();
+        }
+
+        /* modifiers */
+        void clear() noexcept
+        {
+            while (!empty())
+                pop_back();
+        }
+
+        iterator insert(const_iterator position, const T &value)
+        {
+            node *new_node = create_node(value);
+            node *pos = const_cast<node *>(position.base());
+
+            new_node->prev = pos->prev;
+            new_node->next = pos;
+            pos->prev->next = new_node;
+            pos->prev = new_node;
+
+            ++count;
+            return iterator(new_node);
+        }
+
+        iterator insert(const_iterator position, T &&value)
+        {
+            node *new_node = create_node(std::move(value));
+            node *pos = const_cast<node *>(position.base());
+
+            new_node->prev = pos->prev;
+            new_node->next = pos;
+            pos->prev->next = new_node;
+            pos->prev = new_node;
+
+            ++count;
+            return iterator(new_node);
+        }
+
+        iterator insert(const_iterator position, size_type n, const T &value)
+        {
+            if (n == 0)
+                return iterator(const_cast<node *>(position.base()));
+
+            iterator result = insert(position, value);
+            for (size_type i = 1; i < n; ++i)
+                insert(position, value);
+
+            return result;
+        }
+
+        template<typename InputIt>
+        iterator insert(const_iterator position, InputIt first, InputIt last)
+        {
+            if (first == last)
+                return iterator(const_cast<node *>(position.base()));
+
+            iterator result = insert(position, *first);
+            ++first;
+
+            for (; first != last; ++first)
+                insert(position, *first);
+
+            return result;
+        }
+
+        iterator insert(const_iterator position, std::initializer_list<T> ilist)
+        {
+            return insert(position, ilist.begin(), ilist.end());
+        }
+
+        template<typename... Args>
+        iterator emplace(const_iterator position, Args &&... args)
+        {
+            node *new_node = create_node(std::forward<Args>(args)...);
+            node *pos = const_cast<node *>(position.base());
+
+            new_node->prev = pos->prev;
+            new_node->next = pos;
+            pos->prev->next = new_node;
+            pos->prev = new_node;
+
+            ++count;
+            return iterator(new_node);
+        }
+
+        iterator erase(const_iterator position)
+        {
+            if (empty())
+                return end();
+
+            node *pos = const_cast<node *>(position.base());
+            node *next_node = pos->next;
+
+            pos->prev->next = pos->next;
+            pos->next->prev = pos->prev;
+
+            destroy_node(pos);
+            --count;
+
+            return iterator(next_node);
+        }
+
+        iterator erase(const_iterator first, const_iterator last)
+        {
+            while (first != last)
+                first = erase(first);
+
+            return iterator(const_cast<node *>(last.base()));
+        }
+
+        void push_back(const T &value)
+        {
+            node *new_node = create_node(value);
+
+            new_node->prev = head.prev;
+            new_node->next = &head;
+            head.prev->next = new_node;
+            head.prev = new_node;
+
+            ++count;
+        }
+
+        void push_back(T &&value)
+        {
+            node *new_node = create_node(std::move(value));
+
+            new_node->prev = head.prev;
+            new_node->next = &head;
+            head.prev->next = new_node;
+            head.prev = new_node;
+
+            ++count;
+        }
+
+        template<typename... Args>
+        reference emplace_back(Args &&... args)
+        {
+            node *new_node = create_node(std::forward<Args>(args)...);
+
+            new_node->prev = head.prev;
+            new_node->next = &head;
+            head.prev->next = new_node;
+            head.prev = new_node;
+
+            ++count;
+            return new_node->data;
+        }
+
+        void push_front(const T &value)
+        {
+            node *new_node = create_node(value);
+
+            new_node->next = head.next;
+            new_node->prev = &head;
+            head.next->prev = new_node;
+            head.next = new_node;
+
+            ++count;
+        }
+
+        void push_front(T &&value)
+        {
+            node *new_node = create_node(std::move(value));
+
+            new_node->next = head.next;
+            new_node->prev = &head;
+            head.next->prev = new_node;
+            head.next = new_node;
+
+            ++count;
+        }
+
+        template<typename... Args>
+        reference emplace_front(Args &&... args)
+        {
+            node *new_node = create_node(std::forward<Args>(args)...);
+
+            new_node->next = head.next;
+            new_node->prev = &head;
+            head.next->prev = new_node;
+            head.next = new_node;
+
+            ++count;
+            return new_node->data;
+        }
+
+        void pop_back()
+        {
+            if (empty())
+                return;
+
+            node *last = head.prev;
+            head.prev = last->prev;
+            last->prev->next = &head;
+
+            destroy_node(last);
+            --count;
+        }
+
+        void pop_front()
+        {
+            if (empty())
+                return;
+
+            node *first = head.next;
+            head.next = first->next;
+            first->next->prev = &head;
+
+            destroy_node(first);
+            --count;
+        }
+
+        void resize(size_type new_size)
+        {
+            if (new_size < count)
+            {
+                while (count > new_size)
+                    pop_back();
+            }
+            else if (new_size > count)
+            {
+                while (count < new_size)
+                    push_back(T());
+            }
+        }
+
+        void resize(size_type new_size, const value_type &value)
+        {
+            if (new_size < count)
+            {
+                while (count > new_size)
+                    pop_back();
+            }
+            else if (new_size > count)
+            {
+                while (count < new_size)
+                    push_back(value);
+            }
+        }
+
+        void swap(list &other) noexcept
+        {
+            if (this == &other)
+                return;
+
+            std::swap(head.next, other.head.next);
+            std::swap(head.prev, other.head.prev);
+
+            if (head.next == &other.head)
+                head.next = &head;
+            if (head.prev == &other.head)
+                head.prev = &head;
+
+            if (other.head.next == &head)
+                other.head.next = &other.head;
+            if (other.head.prev == &head)
+                other.head.prev = &other.head;
+
+            head.next->prev = &head;
+            head.prev->next = &head;
+            other.head.next->prev = &other.head;
+            other.head.prev->next = &other.head;
+
+            std::swap(count, other.count);
+            std::swap(allocator, other.allocator);
+        }
+
+        /* operations */
+        void merge(list &other)
+        {
+            if (this == &other)
+                return;
+
+            iterator first1 = begin();
+            iterator last1 = end();
+            iterator first2 = other.begin();
+            iterator last2 = other.end();
+
+            while (first1 != last1 && first2 != last2)
+            {
+                if (*first2 < *first1)
+                {
+                    iterator next = first2;
+                    ++next;
+                    splice(first1, other, first2);
+                    first2 = next;
+                }
+                else
+                {
+                    ++first1;
+                }
+            }
+
+            if (first2 != last2)
+                splice(last1, other, first2, last2);
+        }
+
+        template<typename Compare>
+        void merge(list &other, Compare comp)
+        {
+            if (this == &other)
+                return;
+
+            iterator first1 = begin();
+            iterator last1 = end();
+            iterator first2 = other.begin();
+            iterator last2 = other.end();
+
+            while (first1 != last1 && first2 != last2)
+            {
+                if (comp(*first2, *first1))
+                {
+                    iterator next = first2;
+                    ++next;
+                    splice(first1, other, first2);
+                    first2 = next;
+                }
+                else
+                {
+                    ++first1;
+                }
+            }
+
+            if (first2 != last2)
+                splice(last1, other, first2, last2);
+        }
+
+        void splice(const_iterator position, list &other)
+        {
+            if (other.empty())
+                return;
+
+            node *pos = const_cast<node *>(position.base());
+            node *first = other.head.next;
+            node *last = other.head.prev;
+
+            first->prev = pos->prev;
+            last->next = pos;
+            pos->prev->next = first;
+            pos->prev = last;
+
+            count += other.count;
+            other.count = 0;
+            other.head.next = &other.head;
+            other.head.prev = &other.head;
+        }
+
+        void splice(const_iterator position, list &other, const_iterator it)
+        {
+            if (it == other.end())
+                return;
+
+            node *pos = const_cast<node *>(position.base());
+            node *node_it = const_cast<node *>(it.base());
+
+            node_it->prev->next = node_it->next;
+            node_it->next->prev = node_it->prev;
+
+            node_it->prev = pos->prev;
+            node_it->next = pos;
+            pos->prev->next = node_it;
+            pos->prev = node_it;
+
+            ++count;
+            --other.count;
+        }
+
+        void splice(const_iterator position, list &other, const_iterator first, const_iterator last)
+        {
+            if (first == last)
+                return;
+
+            node *pos = const_cast<node *>(position.base());
+            node *first_node = const_cast<node *>(first.base());
+            node *last_node = const_cast<node *>(last.base());
+            node *before_first = first_node->prev;
+
+            size_type n = 0;
+            for (auto it = first; it != last; ++it)
+                ++n;
+
+            before_first->next = last_node;
+            last_node->prev = before_first;
+
+            first_node->prev = pos->prev;
+            last_node->prev->next = pos;
+            pos->prev->next = first_node;
+            pos->prev = last_node->prev;
+
+            count += n;
+            other.count -= n;
+        }
+
+        size_type remove(const T &value)
+        {
+            size_type removed = 0;
+            for (auto it = begin(); it != end();)
+            {
+                if (*it == value)
+                {
+                    it = erase(it);
+                    ++removed;
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            return removed;
+        }
+
+        template<typename UnaryPredicate>
+        size_type remove_if(UnaryPredicate p)
+        {
+            size_type removed = 0;
+            for (auto it = begin(); it != end();)
+            {
+                if (p(*it))
+                {
+                    it = erase(it);
+                    ++removed;
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            return removed;
+        }
+
+        void reverse() noexcept
+        {
+            if (count <= 1)
+                return;
+
+            node *current = &head;
+            do
+            {
+                node *temp = current->next;
+                current->next = current->prev;
+                current->prev = temp;
+                current = current->prev;
+            }
+            while (current != &head);
+        }
+
+        size_type unique()
+        {
+            if (count <= 1)
+                return 0;
+
+            size_type removed = 0;
+            iterator it = begin();
+            iterator next = it;
+            ++next;
+
+            while (next != end())
+            {
+                if (*it == *next)
+                {
+                    next = erase(next);
+                    ++removed;
+                }
+                else
+                {
+                    it = next;
+                    ++next;
+                }
+            }
+
+            return removed;
+        }
+
+        template<typename BinaryPredicate>
+        size_type unique(BinaryPredicate p)
+        {
+            if (count <= 1)
+                return 0;
+
+            size_type removed = 0;
+            iterator it = begin();
+            iterator next = it;
+            ++next;
+
+            while (next != end())
+            {
+                if (p(*it, *next))
+                {
+                    next = erase(next);
+                    ++removed;
+                }
+                else
+                {
+                    it = next;
+                    ++next;
+                }
+            }
+
+            return removed;
+        }
+
+        void sort()
+        {
+            /* merge sort implementation */
+            if (count <= 1)
+                return;
+
+            list carry;
+            list tmp[64];
+            list *fill = &tmp[0];
+            list *counter = nullptr;
+
+            do
+            {
+                carry.splice(carry.begin(), *this, begin());
+
+                for (counter = &tmp[0]; counter != fill && !counter->empty(); ++counter)
+                {
+                    counter->merge(carry);
+                    carry.swap(*counter);
+                }
+
+                carry.swap(*counter);
+                if (counter == fill)
+                    ++fill;
+            }
+            while (!empty());
+
+            for (counter = &tmp[1]; counter != fill; ++counter)
+                counter->merge(*(counter - 1));
+
+            swap(*(fill - 1));
+        }
+
+        template<typename Compare>
+        void sort(Compare comp)
+        {
+            /* merge sort implementation with custom comparator */
+            if (count <= 1)
+                return;
+
+            list carry;
+            list tmp[64];
+            list *fill = &tmp[0];
+            list *counter = nullptr;
+
+            do
+            {
+                carry.splice(carry.begin(), *this, begin());
+
+                for (counter = &tmp[0]; counter != fill && !counter->empty(); ++counter)
+                {
+                    counter->merge(carry, comp);
+                    carry.swap(*counter);
+                }
+
+                carry.swap(*counter);
+                if (counter == fill)
+                    ++fill;
+            }
+            while (!empty());
+
+            for (counter = &tmp[1]; counter != fill; ++counter)
+                counter->merge(*(counter - 1), comp);
+
+            swap(*(fill - 1));
+        }
+
+        /* allocator */
+        allocator_type get_allocator() const noexcept
+        {
+            return allocator;
+        }
+
+    private:
+        node head;
+        size_type count = {};
+        Allocator allocator;
+
+        using node_allocator_type = typename std::allocator_traits<Allocator>::template rebind_alloc<node>;
+
+        node_allocator_type get_node_allocator()
+        {
+            return node_allocator_type(allocator);
+        }
+
+        template<typename... Args>
+        node *create_node(Args &&... args)
+        {
+            auto alloc = get_node_allocator();
+            auto ptr = std::allocator_traits<node_allocator_type>::allocate(alloc, 1);
+            std::allocator_traits<node_allocator_type>::construct(alloc, ptr, std::forward<Args>(args)...);
+            return ptr;
+        }
+
+        void destroy_node(node *n)
+        {
+            auto alloc = get_node_allocator();
+            std::allocator_traits<node_allocator_type>::destroy(alloc, n);
+            std::allocator_traits<node_allocator_type>::deallocate(alloc, n, 1);
+        }
+    };
+
+    /* non-member functions */
+    template<typename T, typename Alloc>
+    bool operator==(const list<T, Alloc> &lhs, const list<T, Alloc> &rhs)
+    {
+        if (lhs.size() != rhs.size())
+            return false;
+
+        return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+    }
+
+    template<typename T, typename Alloc>
+    bool operator!=(const list<T, Alloc> &lhs, const list<T, Alloc> &rhs)
+    {
+        return !(lhs == rhs);
+    }
+
+    template<typename T, typename Alloc>
+    bool operator<(const list<T, Alloc> &lhs, const list<T, Alloc> &rhs)
+    {
+        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    }
+
+    template<typename T, typename Alloc>
+    bool operator<=(const list<T, Alloc> &lhs, const list<T, Alloc> &rhs)
+    {
+        return !(rhs < lhs);
+    }
+
+    template<typename T, typename Alloc>
+    bool operator>(const list<T, Alloc> &lhs, const list<T, Alloc> &rhs)
+    {
+        return rhs < lhs;
+    }
+
+    template<typename T, typename Alloc>
+    bool operator>=(const list<T, Alloc> &lhs, const list<T, Alloc> &rhs)
+    {
+        return !(lhs < rhs);
+    }
+
+    template<typename T, typename Alloc>
+    void swap(list<T, Alloc> &lhs, list<T, Alloc> &rhs) noexcept
+    {
+        lhs.swap(rhs);
+    }
+}
