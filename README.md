@@ -9,16 +9,16 @@ maintaining API for compatibility where appropriate.
 Acheron currently implements the following libraries
 
 - [X] `atomic`
-- [X] `cstring`
-- [X] `string`
 - [X] `cast`
+- [X] `cstring`
+- [X] `list`
+- [X] `string`
 
 Below are libraries that are planned to be included
 
 - [ ] `algorithm`
 - [ ] `dynamic_bitset`
 - [ ] `deque`
-- [ ] `list`
 - [ ] `map`
 - [ ] `stack`
 - [ ] `queue`
