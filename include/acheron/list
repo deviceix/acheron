@@ -3,12 +3,12 @@
 // ReSharper disable CppNonExplicitConvertingConstructor
 #pragma once
 
-#include <utility>
-#include <initializer_list>
 #include <algorithm>
-#include <iterator>
 #include <functional>
+#include <initializer_list>
+#include <iterator>
 #include <limits>
+#include <utility>
 #include <acheron/__libdef.hpp>
 #include <acheron/__memory/allocator.hpp>
 
@@ -38,21 +38,31 @@ namespace ach
         };
 
         /* constructors */
-        list(const Allocator &alloc = Allocator()) : allocator(alloc)
+        list() : list(Allocator()) {}
+
+        explicit list(const Allocator &alloc) : allocator(alloc)
         {
             head.next = &head;
             head.prev = &head;
         }
 
-        list(const size_type count, const T &value = T(),
-             const Allocator &alloc = Allocator()) : list(alloc)
+        explicit list(size_type count, const Allocator &alloc = Allocator())
+            : list(alloc)
+        {
+            for (size_type i = 0; i < count; ++i)
+                push_back(T());
+        }
+
+        list(size_type count, const T &value, const Allocator &alloc = Allocator())
+            : list(alloc)
         {
             for (size_type i = 0; i < count; ++i)
                 push_back(value);
         }
 
         template<typename InputIt>
-        list(InputIt first, InputIt last, const Allocator &alloc = Allocator()) : list(alloc)
+        list(InputIt first, InputIt last, const Allocator &alloc = Allocator())
+            : list(alloc)
         {
             for (auto it = first; it != last; ++it)
                 push_back(*it);
@@ -64,7 +74,8 @@ namespace ach
                 push_back(item);
         }
 
-        list(list &&other) noexcept : count(other.count), allocator(std::move(other.allocator))
+        list(list &&other) noexcept
+            : count(other.count), allocator(std::move(other.allocator))
         {
             if (other.empty())
             {
@@ -84,8 +95,8 @@ namespace ach
             }
         }
 
-        list(std::initializer_list<T> init, const Allocator &alloc = Allocator()) : list(
-            init.begin(), init.end(), alloc) {}
+        list(std::initializer_list<T> init, const Allocator &alloc = Allocator())
+            : list(init.begin(), init.end(), alloc) {}
 
         ~list()
         {
@@ -702,7 +713,6 @@ namespace ach
             iterator last1 = end();
             iterator first2 = other.begin();
             iterator last2 = other.end();
-
             while (first1 != last1 && first2 != last2)
             {
                 if (comp(*first2, *first1))
@@ -771,6 +781,7 @@ namespace ach
             node *first_node = const_cast<node *>(first.base());
             node *last_node = const_cast<node *>(last.base());
             node *before_first = first_node->prev;
+            node *before_last = last_node->prev;
 
             size_type n = 0;
             for (auto it = first; it != last; ++it)
@@ -780,9 +791,9 @@ namespace ach
             last_node->prev = before_first;
 
             first_node->prev = pos->prev;
-            last_node->prev->next = pos;
+            before_last->next = pos;
             pos->prev->next = first_node;
-            pos->prev = last_node->prev;
+            pos->prev = before_last;
 
             count += n;
             other.count -= n;
@@ -973,8 +984,8 @@ namespace ach
         node head;
         size_type count = {};
         Allocator allocator;
-
         using node_allocator_type = typename std::allocator_traits<Allocator>::template rebind_alloc<node>;
+        node_allocator_type node_allocator;
 
         node_allocator_type get_node_allocator()
         {
@@ -986,7 +997,17 @@ namespace ach
         {
             auto alloc = get_node_allocator();
             auto ptr = std::allocator_traits<node_allocator_type>::allocate(alloc, 1);
-            std::allocator_traits<node_allocator_type>::construct(alloc, ptr, std::forward<Args>(args)...);
+
+            try
+            {
+                std::allocator_traits<node_allocator_type>::construct(alloc, ptr, std::forward<Args>(args)...);
+            }
+            catch (...)
+            {
+                std::allocator_traits<node_allocator_type>::deallocate(alloc, ptr, 1);
+                throw;
+            }
+
             return ptr;
         }
 

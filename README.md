@@ -1,5 +1,7 @@
 # acheron
 
+![Build & Unit Tests](https://github.com/deviceix/acheron/actions/workflows/build.yml/badge.svg)
+
 acheron is a subset of the C++ standard library that implements optimized algorithms and 
 containers and extra utilities with the aim to reduce runtime computation cost while being portable and 
 maintaining API for compatibility where appropriate. 

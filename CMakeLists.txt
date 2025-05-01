@@ -4,9 +4,10 @@ cmake_minimum_required(VERSION 3.30)
 project(acheron)
 
 option(ACHERON_BUILD_TEST "Acheron Build Test" ON)
-option(ACHERON_BUILD_BENCHES "Acheron Build Bench" OFF)
+option(ACHERON_BUILD_BENCH "Acheron Build Bench" OFF)
 
 message(STATUS "Acheron Build Test: ${ACHERON_BUILD_TEST}")
+message(STATUS "Acheron Build Bench: ${ACHERON_BUILD_BENCH}")
 
 set(CMAKE_CXX_STANDARD 23)
 
@@ -40,6 +41,7 @@ if (ACHERON_BUILD_TEST)
             tests/cstring/memops.cpp
             tests/cstring/strops.cpp
             tests/memory/allocator.cpp
+            tests/list.cpp
             tests/string.cpp
     )
 
