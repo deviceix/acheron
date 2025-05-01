@@ -43,6 +43,7 @@ if (ACHERON_BUILD_TEST)
             tests/memory/allocator.cpp
             tests/list.cpp
             tests/string.cpp
+            tests/vector.cpp
     )
 
     target_include_directories(${ACHERON_TEST} PRIVATE

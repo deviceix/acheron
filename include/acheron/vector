@@ -1,0 +1,744 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+// ReSharper disable CppNonExplicitConvertingConstructor
+#pragma once
+
+#include <algorithm>
+#include <functional>
+#include <initializer_list>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+    template<typename T, typename Allocator = allocator<T> >
+    class vector
+    {
+    public:
+        using value_type = T;
+        using allocator_type = Allocator;
+        using size_type = size_t;
+        using difference_type = ptrdiff_t;
+        using reference = value_type &;
+        using const_reference = const value_type &;
+        using pointer = typename std::allocator_traits<Allocator>::pointer;
+        using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+
+        /* iterators */
+        using iterator = pointer;
+        using const_iterator = const_pointer;
+        using reverse_iterator = std::reverse_iterator<iterator>;
+        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+        /* constructors */
+        vector() : vector(Allocator()) {}
+
+        explicit vector(const Allocator &alloc)
+            : allocator(alloc), data(nullptr), size(0), capacity(0) {}
+
+        explicit vector(size_type count, const Allocator &alloc = Allocator())
+            : vector(alloc)
+        {
+            if (count > 0)
+            {
+                data = allocate(count);
+                for (size_type i = 0; i < count; ++i)
+                    std::construct_at(data + i);
+                size = count;
+                capacity = count;
+            }
+        }
+
+        vector(size_type count, const T &value, const Allocator &alloc = Allocator())
+            : vector(alloc)
+        {
+            if (count > 0)
+            {
+                data = allocate(count);
+                for (size_type i = 0; i < count; ++i)
+                    std::construct_at(data + i, value);
+                size = count;
+                capacity = count;
+            }
+        }
+
+        template<typename InputIt>
+            requires std::input_iterator<InputIt>
+        vector(InputIt first, InputIt last, const Allocator &alloc = Allocator())
+            : vector(alloc)
+        {
+            if constexpr (std::is_same_v<typename std::iterator_traits<InputIt>::iterator_category,
+                                        std::random_access_iterator_tag>)
+            {
+                size_type count = std::distance(first, last);
+                if (count > 0)
+                {
+                    data = allocate(count);
+                    for (size_type i = 0; first != last; ++first, ++i)
+                        std::construct_at(data + i, *first);
+                    size = count;
+                    capacity = count;
+                }
+            }
+            else
+            {
+                for (auto it = first; it != last; ++it)
+                    push_back(*it);
+            }
+        }
+
+        vector(const vector &other) : vector(other.get_allocator())
+        {
+            if (other.size > 0)
+            {
+                data = allocate(other.size);
+                for (size_type i = 0; i < other.size; ++i)
+                    std::construct_at(data + i, other[i]);
+                size = other.size;
+                capacity = other.size;
+            }
+        }
+
+        vector(vector &&other) noexcept
+            : allocator(std::move(other.allocator)), data(other.data),
+              size(other.size), capacity(other.capacity)
+        {
+            other.data = nullptr;
+            other.size = 0;
+            other.capacity = 0;
+        }
+
+        vector(std::initializer_list<T> init, const Allocator &alloc = Allocator())
+            : vector(init.begin(), init.end(), alloc) {}
+
+        ~vector()
+        {
+            clear();
+            deallocate(data, capacity);
+        }
+
+        /* assignment operators */
+        vector &operator=(const vector &other)
+        {
+            if (this != &other)
+            {
+                if (capacity < other.size)
+                {
+                    vector tmp(other);
+                    swap(tmp);
+                }
+                else
+                {
+                    if (size > other.size)
+                    {
+                        for (size_type i = 0; i < other.size; ++i)
+                            data[i] = other[i];
+                        destroy_range(data + other.size, data + size);
+                    }
+                    else
+                    {
+                        for (size_type i = 0; i < size; ++i)
+                            data[i] = other[i];
+                        for (size_type i = size; i < other.size; ++i)
+                            std::construct_at(data + i, other[i]);
+                    }
+                    size = other.size;
+                }
+            }
+            return *this;
+        }
+
+        vector &operator=(vector &&other) noexcept
+        {
+            if (this != &other)
+            {
+                clear();
+                deallocate(data, capacity);
+
+                data = other.data;
+                size = other.size;
+                capacity = other.capacity;
+                allocator = std::move(other.allocator);
+
+                other.data = nullptr;
+                other.size = 0;
+                other.capacity = 0;
+            }
+            return *this;
+        }
+
+        vector &operator=(std::initializer_list<T> ilist)
+        {
+            assign(ilist.begin(), ilist.end());
+            return *this;
+        }
+
+        /* assign methods */
+        void assign(size_type count, const T &value)
+        {
+            clear();
+            if (count > capacity)
+            {
+                deallocate(data, capacity);
+                data = allocate(count);
+                capacity = count;
+            }
+            for (size_type i = 0; i < count; ++i)
+                std::construct_at(data + i, value);
+            size = count;
+        }
+
+        template<typename InputIt>
+            requires std::input_iterator<InputIt>
+        void assign(InputIt first, InputIt last)
+        {
+            clear();
+            if constexpr (std::is_same_v<typename std::iterator_traits<InputIt>::iterator_category,
+                                        std::random_access_iterator_tag>)
+            {
+                size_type count = std::distance(first, last);
+                if (count > capacity)
+                {
+                    deallocate(data, capacity);
+                    data = allocate(count);
+                    capacity = count;
+                }
+                for (size_type i = 0; first != last; ++first, ++i)
+                    std::construct_at(data + i, *first);
+                size = count;
+            }
+            else
+            {
+                for (auto it = first; it != last; ++it)
+                    push_back(*it);
+            }
+        }
+
+        void assign(std::initializer_list<T> ilist)
+        {
+            assign(ilist.begin(), ilist.end());
+        }
+
+        /* element access */
+        reference at(size_type pos)
+        {
+            if (pos >= size)
+                throw std::out_of_range("vector::at");
+            return data[pos];
+        }
+
+        const_reference at(size_type pos) const
+        {
+            if (pos >= size)
+                throw std::out_of_range("vector::at");
+            return data[pos];
+        }
+
+        reference operator[](size_type pos)
+        {
+            return data[pos];
+        }
+
+        const_reference operator[](size_type pos) const
+        {
+            return data[pos];
+        }
+
+        reference front()
+        {
+            return data[0];
+        }
+
+        const_reference front() const
+        {
+            return data[0];
+        }
+
+        reference back()
+        {
+            return data[size - 1];
+        }
+
+        const_reference back() const
+        {
+            return data[size - 1];
+        }
+
+        T* data_ptr() noexcept
+        {
+            return data;
+        }
+
+        const T* data_ptr() const noexcept
+        {
+            return data;
+        }
+
+        /* iterators */
+        iterator begin() noexcept
+        {
+            return data;
+        }
+
+        const_iterator begin() const noexcept
+        {
+            return data;
+        }
+
+        iterator end() noexcept
+        {
+            return data + size;
+        }
+
+        const_iterator end() const noexcept
+        {
+            return data + size;
+        }
+
+        reverse_iterator rbegin() noexcept
+        {
+            return reverse_iterator(end());
+        }
+
+        const_reverse_iterator rbegin() const noexcept
+        {
+            return const_reverse_iterator(end());
+        }
+
+        reverse_iterator rend() noexcept
+        {
+            return reverse_iterator(begin());
+        }
+
+        const_reverse_iterator rend() const noexcept
+        {
+            return const_reverse_iterator(begin());
+        }
+
+        const_iterator cbegin() const noexcept
+        {
+            return begin();
+        }
+
+        const_iterator cend() const noexcept
+        {
+            return end();
+        }
+
+        const_reverse_iterator crbegin() const noexcept
+        {
+            return rbegin();
+        }
+
+        const_reverse_iterator crend() const noexcept
+        {
+            return rend();
+        }
+
+        /* capacity */
+        [[nodiscard]] bool empty() const noexcept
+        {
+            return size == 0;
+        }
+
+        [[nodiscard]] size_type size_val() const noexcept
+        {
+            return size;
+        }
+
+        [[nodiscard]] static size_type max_size() noexcept
+        {
+            return std::numeric_limits<size_type>::max() / sizeof(T);
+        }
+
+        void reserve(size_type new_cap)
+        {
+            if (new_cap > capacity)
+            {
+                pointer new_data = allocate(new_cap);
+                if (data)
+                {
+                    for (size_type i = 0; i < size; ++i)
+                        std::construct_at(new_data + i, std::move(data[i]));
+                    destroy_range(data, data + size);
+                    deallocate(data, capacity);
+                }
+                data = new_data;
+                capacity = new_cap;
+            }
+        }
+
+        [[nodiscard]] size_type capacity_val() const noexcept
+        {
+            return capacity;
+        }
+
+        void shrink_to_fit()
+        {
+            if (capacity > size)
+            {
+                if (size == 0)
+                {
+                    deallocate(data, capacity);
+                    data = nullptr;
+                    capacity = 0;
+                }
+                else
+                {
+                    pointer new_data = allocate(size);
+                    for (size_type i = 0; i < size; ++i)
+                        std::construct_at(new_data + i, std::move(data[i]));
+                    destroy_range(data, data + size);
+                    deallocate(data, capacity);
+                    data = new_data;
+                    capacity = size;
+                }
+            }
+        }
+
+        /* modifiers */
+        void clear() noexcept
+        {
+            destroy_range(data, data + size);
+            size = 0;
+        }
+
+        iterator insert(const_iterator position, const T &value)
+        {
+            size_type pos = position - begin();
+            if (size == capacity)
+                reserve(capacity == 0 ? 1 : capacity * 2);
+
+            if (pos < size)
+            {
+                std::construct_at(data + size, std::move(data[size - 1]));
+                for (size_type i = size - 1; i > pos; --i)
+                    data[i] = std::move(data[i - 1]);
+                data[pos] = value;
+            }
+            else
+            {
+                std::construct_at(data + pos, value);
+            }
+            ++size;
+            return begin() + pos;
+        }
+
+        iterator insert(const_iterator position, T &&value)
+        {
+            size_type pos = position - begin();
+            if (size == capacity)
+                reserve(capacity == 0 ? 1 : capacity * 2);
+
+            if (pos < size)
+            {
+                std::construct_at(data + size, std::move(data[size - 1]));
+                for (size_type i = size - 1; i > pos; --i)
+                    data[i] = std::move(data[i - 1]);
+                data[pos] = std::move(value);
+            }
+            else
+            {
+                std::construct_at(data + pos, std::move(value));
+            }
+            ++size;
+            return begin() + pos;
+        }
+
+        iterator insert(const_iterator position, size_type count, const T &value)
+        {
+            size_type pos = position - begin();
+            if (count == 0)
+                return begin() + pos;
+
+            if (size + count > capacity)
+                reserve(std::max(size + count, capacity * 2));
+
+            if (pos < size)
+            {
+                size_type elements_to_move = size - pos;
+                if (count < elements_to_move)
+                {
+                    for (size_type i = size + count - 1; i >= pos + count; --i)
+                        std::construct_at(data + i, std::move(data[i - count]));
+                    for (size_type i = 0; i < count; ++i)
+                        data[pos + i] = value;
+                }
+                else
+                {
+                    for (size_type i = 0; i < elements_to_move; ++i)
+                        std::construct_at(data + pos + count + i, std::move(data[pos + i]));
+                    for (size_type i = 0; i < count; ++i)
+                        std::construct_at(data + pos + i, value);
+                }
+            }
+            else
+            {
+                for (size_type i = 0; i < count; ++i)
+                    std::construct_at(data + pos + i, value);
+            }
+            size += count;
+            return begin() + pos;
+        }
+
+        template<typename InputIt>
+            requires std::input_iterator<InputIt>
+        iterator insert(const_iterator position, InputIt first, InputIt last)
+        {
+            size_type pos = position - begin();
+
+            if constexpr (std::is_same_v<typename std::iterator_traits<InputIt>::iterator_category,
+                                        std::random_access_iterator_tag>)
+            {
+                size_type count = std::distance(first, last);
+                if (count == 0)
+                    return begin() + pos;
+
+                if (size + count > capacity)
+                    reserve(std::max(size + count, capacity * 2));
+
+                if (pos < size)
+                {
+                    size_type elements_to_move = size - pos;
+                    if (count < elements_to_move)
+                    {
+                        for (size_type i = size + count - 1; i >= pos + count; --i)
+                            std::construct_at(data + i, std::move(data[i - count]));
+                        std::copy(first, last, data + pos);
+                    }
+                    else
+                    {
+                        for (size_type i = 0; i < elements_to_move; ++i)
+                            std::construct_at(data + pos + count + i, std::move(data[pos + i]));
+                        for (size_type i = 0; i < count; ++i, ++first)
+                            std::construct_at(data + pos + i, *first);
+                    }
+                }
+                else
+                {
+                    for (size_type i = 0; first != last; ++first, ++i)
+                        std::construct_at(data + pos + i, *first);
+                }
+                size += count;
+            }
+            else
+            {
+                vector tmp(first, last);
+                return insert(position, tmp.begin(), tmp.end());
+            }
+
+            return begin() + pos;
+        }
+
+        iterator insert(const_iterator position, std::initializer_list<T> ilist)
+        {
+            return insert(position, ilist.begin(), ilist.end());
+        }
+
+        template<typename... Args>
+        iterator emplace(const_iterator position, Args &&... args)
+        {
+            size_type pos = position - begin();
+            if (size == capacity)
+                reserve(capacity == 0 ? 1 : capacity * 2);
+
+            if (pos < size)
+            {
+                std::construct_at(data + size, std::move(data[size - 1]));
+                for (size_type i = size - 1; i > pos; --i)
+                    data[i] = std::move(data[i - 1]);
+                std::destroy_at(data + pos);
+                std::construct_at(data + pos, std::forward<Args>(args)...);
+            }
+            else
+            {
+                std::construct_at(data + pos, std::forward<Args>(args)...);
+            }
+            ++size;
+            return begin() + pos;
+        }
+
+        iterator erase(const_iterator position)
+        {
+            size_type pos = position - begin();
+            std::destroy_at(data + pos);
+
+            for (size_type i = pos; i < size - 1; ++i)
+                data[i] = std::move(data[i + 1]);
+
+            --size;
+            return begin() + pos;
+        }
+
+        iterator erase(const_iterator first, const_iterator last)
+        {
+            size_type start = first - begin();
+            size_type end = last - begin();
+            size_type count = end - start;
+
+            if (count == 0)
+                return begin() + start;
+
+            destroy_range(data + start, data + end);
+
+            for (size_type i = start; i < size - count; ++i)
+                data[i] = std::move(data[i + count]);
+
+            size -= count;
+            return begin() + start;
+        }
+
+        void push_back(const T &value)
+        {
+            if (size == capacity)
+                reserve(capacity == 0 ? 1 : capacity * 2);
+            std::construct_at(data + size, value);
+            ++size;
+        }
+
+        void push_back(T &&value)
+        {
+            if (size == capacity)
+                reserve(capacity == 0 ? 1 : capacity * 2);
+            std::construct_at(data + size, std::move(value));
+            ++size;
+        }
+
+        template<typename... Args>
+        reference emplace_back(Args &&... args)
+        {
+            if (size == capacity)
+                reserve(capacity == 0 ? 1 : capacity * 2);
+            std::construct_at(data + size, std::forward<Args>(args)...);
+            ++size;
+            return data[size - 1];
+        }
+
+        void pop_back()
+        {
+            if (!empty())
+            {
+                --size;
+                std::destroy_at(data + size);
+            }
+        }
+
+        void resize(size_type count)
+        {
+            if (count < size)
+            {
+                destroy_range(data + count, data + size);
+            }
+            else if (count > size)
+            {
+                reserve(count);
+                for (size_type i = size; i < count; ++i)
+                    std::construct_at(data + i);
+            }
+            size = count;
+        }
+
+        void resize(size_type count, const value_type &value)
+        {
+            if (count < size)
+            {
+                destroy_range(data + count, data + size);
+            }
+            else if (count > size)
+            {
+                reserve(count);
+                for (size_type i = size; i < count; ++i)
+                    std::construct_at(data + i, value);
+            }
+            size = count;
+        }
+
+        void swap(vector &other) noexcept
+        {
+            std::swap(data, other.data);
+            std::swap(size, other.size);
+            std::swap(capacity, other.capacity);
+            std::swap(allocator, other.allocator);
+        }
+
+        /* allocator */
+        allocator_type get_allocator() const noexcept
+        {
+            return allocator;
+        }
+
+    private:
+        pointer data = {};
+        size_type size = {};
+        size_type capacity = {};
+        Allocator allocator;
+
+        pointer allocate(size_type n)
+        {
+            return std::allocator_traits<Allocator>::allocate(allocator, n);
+        }
+
+        void deallocate(pointer p, size_type n)
+        {
+            if (p)
+                std::allocator_traits<Allocator>::deallocate(allocator, p, n);
+        }
+
+        void destroy_range(pointer first, pointer last)
+        {
+            for (; first != last; ++first)
+                std::destroy_at(first);
+        }
+    };
+
+    /* non-member functions */
+    template<typename T, typename Alloc>
+    bool operator==(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
+    {
+        if (lhs.size_val() != rhs.size_val())
+            return false;
+
+        return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+    }
+
+    template<typename T, typename Alloc>
+    bool operator!=(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
+    {
+        return !(lhs == rhs);
+    }
+
+    template<typename T, typename Alloc>
+    bool operator<(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
+    {
+        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    }
+
+    template<typename T, typename Alloc>
+    bool operator<=(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
+    {
+        return !(rhs < lhs);
+    }
+
+    template<typename T, typename Alloc>
+    bool operator>(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
+    {
+        return rhs < lhs;
+    }
+
+    template<typename T, typename Alloc>
+    bool operator>=(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
+    {
+        return !(lhs < rhs);
+    }
+
+    template<typename T, typename Alloc>
+    void swap(vector<T, Alloc> &lhs, vector<T, Alloc> &rhs) noexcept
+    {
+        lhs.swap(rhs);
+    }
+}
