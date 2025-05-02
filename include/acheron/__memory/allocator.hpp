@@ -416,7 +416,12 @@ namespace ach
 			n |= n >> 8;
 			n |= n >> 16;
 			n |= n >> 32;
-			return (63 - __builtin_clzll(n + 1)) - 3; /* log2 - 3 */
+
+			uint8_t class_index = (63 - __builtin_clzll(n + 1)) - 3; /* log2 - 3 */
+			if (class_index >= SIZE_CLASSES)
+				return SIZE_CLASSES - 1;
+
+			return class_index;
 		}
 
 		void allocate_pool(uint8_t size_class)

@@ -15,15 +15,15 @@ protected:
 TEST_F(VectorTest, DefaultConstruction)
 {
 	EXPECT_TRUE(int_vector.empty());
-	EXPECT_EQ(int_vector.size_val(), 0);
-	EXPECT_EQ(int_vector.capacity_val(), 0);
+	EXPECT_EQ(int_vector.size(), 0);
+	EXPECT_EQ(int_vector.capacity(), 0);
 }
 
 TEST_F(VectorTest, FillConstruction)
 {
 	ach::vector filled(static_cast<size_t>(5), 42);
-	EXPECT_EQ(filled.size_val(), 5);
-	EXPECT_GE(filled.capacity_val(), 5);
+	EXPECT_EQ(filled.size(), 5);
+	EXPECT_GE(filled.capacity(), 5);
 	for (const auto &val: filled)
 	{
 		EXPECT_EQ(val, 42);
@@ -35,7 +35,7 @@ TEST_F(VectorTest, RangeConstruction)
 	std::vector<int> vec = { 1, 2, 3, 4, 5 };
 	ach::vector<int> from_vec(vec.begin(), vec.end());
 
-	EXPECT_EQ(from_vec.size_val(), vec.size());
+	EXPECT_EQ(from_vec.size(), vec.size());
 	for (size_t i = 0; i < vec.size(); ++i)
 	{
 		EXPECT_EQ(from_vec[i], vec[i]);
@@ -45,7 +45,7 @@ TEST_F(VectorTest, RangeConstruction)
 TEST_F(VectorTest, InitializerListConstruction)
 {
 	ach::vector<int> init_vector = { 1, 2, 3, 4, 5 };
-	EXPECT_EQ(init_vector.size_val(), 5);
+	EXPECT_EQ(init_vector.size(), 5);
 
 	int expected = 1;
 	for (const auto &val: init_vector)
@@ -61,9 +61,9 @@ TEST_F(VectorTest, CopyConstruction)
 	int_vector.push_back(3);
 
 	ach::vector<int> copy(int_vector);
-	EXPECT_EQ(copy.size_val(), int_vector.size_val());
+	EXPECT_EQ(copy.size(), int_vector.size());
 
-	for (size_t i = 0; i < int_vector.size_val(); ++i)
+	for (size_t i = 0; i < int_vector.size(); ++i)
 	{
 		EXPECT_EQ(copy[i], int_vector[i]);
 	}
@@ -76,7 +76,7 @@ TEST_F(VectorTest, MoveConstruction)
 	int_vector.push_back(3);
 
 	ach::vector<int> moved(std::move(int_vector));
-	EXPECT_EQ(moved.size_val(), 3);
+	EXPECT_EQ(moved.size(), 3);
 	EXPECT_TRUE(int_vector.empty());
 
 	int expected = 1;
@@ -105,11 +105,11 @@ TEST_F(VectorTest, PushBackPopBack)
 	int_vector.push_back(2);
 	int_vector.push_back(3);
 
-	EXPECT_EQ(int_vector.size_val(), 3);
+	EXPECT_EQ(int_vector.size(), 3);
 	EXPECT_EQ(int_vector.back(), 3);
 
 	int_vector.pop_back();
-	EXPECT_EQ(int_vector.size_val(), 2);
+	EXPECT_EQ(int_vector.size(), 2);
 	EXPECT_EQ(int_vector.back(), 2);
 }
 
@@ -118,7 +118,7 @@ TEST_F(VectorTest, EmplaceBack)
 	string_vector.emplace_back("Hello");
 	string_vector.emplace_back(5, 'A');
 
-	EXPECT_EQ(string_vector.size_val(), 2);
+	EXPECT_EQ(string_vector.size(), 2);
 	EXPECT_EQ(string_vector[0], "Hello");
 	EXPECT_EQ(string_vector[1], "AAAAA");
 }
@@ -131,7 +131,7 @@ TEST_F(VectorTest, Insert)
 	auto it = int_vector.begin() + 1;
 	int_vector.insert(it, 2);
 
-	EXPECT_EQ(int_vector.size_val(), 3);
+	EXPECT_EQ(int_vector.size(), 3);
 	int expected = 1;
 	for (const auto &val: int_vector)
 	{
@@ -146,7 +146,7 @@ TEST_F(VectorTest, InsertMultiple)
 	auto it = int_vector.begin() + 1;
 	int_vector.insert(it, 3, 2);
 
-	EXPECT_EQ(int_vector.size_val(), 5);
+	EXPECT_EQ(int_vector.size(), 5);
 	std::vector<int> expected = { 1, 2, 2, 2, 5 };
 	for (size_t i = 0; i < expected.size(); ++i)
 	{
@@ -162,7 +162,7 @@ TEST_F(VectorTest, InsertRange)
 	auto it = int_vector.begin() + 1;
 	int_vector.insert(it, to_insert.begin(), to_insert.end());
 
-	EXPECT_EQ(int_vector.size_val(), 5);
+	EXPECT_EQ(int_vector.size(), 5);
 	int expected = 1;
 	for (const auto &val: int_vector)
 	{
@@ -177,7 +177,7 @@ TEST_F(VectorTest, Erase)
 	auto it = int_vector.begin() + 2;
 	it = int_vector.erase(it);
 
-	EXPECT_EQ(int_vector.size_val(), 4);
+	EXPECT_EQ(int_vector.size(), 4);
 	EXPECT_EQ(*it, 4);
 
 	std::vector<int> expected = { 1, 2, 4, 5 };
@@ -195,7 +195,7 @@ TEST_F(VectorTest, EraseRange)
 	auto last = int_vector.begin() + 4;
 	auto it = int_vector.erase(first, last);
 
-	EXPECT_EQ(int_vector.size_val(), 2);
+	EXPECT_EQ(int_vector.size(), 2);
 	EXPECT_EQ(*it, 5);
 
 	EXPECT_EQ(int_vector[0], 1);
@@ -209,19 +209,19 @@ TEST_F(VectorTest, Clear)
 
 	int_vector.clear();
 	EXPECT_TRUE(int_vector.empty());
-	EXPECT_EQ(int_vector.size_val(), 0);
-	EXPECT_GT(int_vector.capacity_val(), 0);
+	EXPECT_EQ(int_vector.size(), 0);
+	EXPECT_GT(int_vector.capacity(), 0);
 }
 
 TEST_F(VectorTest, Reserve)
 {
 	int_vector.reserve(100);
-	EXPECT_EQ(int_vector.size_val(), 0);
-	EXPECT_GE(int_vector.capacity_val(), 100);
+	EXPECT_EQ(int_vector.size(), 0);
+	EXPECT_GE(int_vector.capacity(), 100);
 
-	size_t old_capacity = int_vector.capacity_val();
+	size_t old_capacity = int_vector.capacity();
 	int_vector.push_back(1);
-	EXPECT_EQ(int_vector.capacity_val(), old_capacity);
+	EXPECT_EQ(int_vector.capacity(), old_capacity);
 }
 
 TEST_F(VectorTest, ShrinkToFit)
@@ -230,10 +230,10 @@ TEST_F(VectorTest, ShrinkToFit)
 	int_vector.push_back(1);
 	int_vector.push_back(2);
 
-	EXPECT_GT(int_vector.capacity_val(), int_vector.size_val());
+	EXPECT_GT(int_vector.capacity(), int_vector.size());
 
 	int_vector.shrink_to_fit();
-	EXPECT_EQ(int_vector.capacity_val(), int_vector.size_val());
+	EXPECT_EQ(int_vector.capacity(), int_vector.size());
 }
 
 TEST_F(VectorTest, Resize)
@@ -241,13 +241,13 @@ TEST_F(VectorTest, Resize)
 	int_vector = { 1, 2, 3 };
 
 	int_vector.resize(5);
-	EXPECT_EQ(int_vector.size_val(), 5);
+	EXPECT_EQ(int_vector.size(), 5);
 	EXPECT_EQ(int_vector[0], 1);
 	EXPECT_EQ(int_vector[1], 2);
 	EXPECT_EQ(int_vector[2], 3);
 
 	int_vector.resize(2);
-	EXPECT_EQ(int_vector.size_val(), 2);
+	EXPECT_EQ(int_vector.size(), 2);
 	EXPECT_EQ(int_vector[0], 1);
 	EXPECT_EQ(int_vector[1], 2);
 }
@@ -257,7 +257,7 @@ TEST_F(VectorTest, ResizeWithValue)
 	int_vector = { 1, 2, 3 };
 
 	int_vector.resize(5, 42);
-	EXPECT_EQ(int_vector.size_val(), 5);
+	EXPECT_EQ(int_vector.size(), 5);
 	EXPECT_EQ(int_vector[3], 42);
 	EXPECT_EQ(int_vector[4], 42);
 }
@@ -318,8 +318,8 @@ TEST_F(VectorTest, Swap)
 
 	vector1.swap(vector2);
 
-	EXPECT_EQ(vector1.size_val(), 3);
-	EXPECT_EQ(vector2.size_val(), 3);
+	EXPECT_EQ(vector1.size(), 3);
+	EXPECT_EQ(vector2.size(), 3);
 
 	EXPECT_EQ(vector1[0], 4);
 	EXPECT_EQ(vector2[0], 1);
@@ -327,14 +327,14 @@ TEST_F(VectorTest, Swap)
 
 TEST_F(VectorTest, CapacityGrowth)
 {
-	size_t old_capacity = int_vector.capacity_val();
+	size_t old_capacity = int_vector.capacity();
 	for (int i = 0; i < 10; ++i)
 	{
 		int_vector.push_back(i);
-		if (int_vector.capacity_val() != old_capacity)
+		if (int_vector.capacity() != old_capacity)
 		{
-			EXPECT_GT(int_vector.capacity_val(), old_capacity);
-			old_capacity = int_vector.capacity_val();
+			EXPECT_GT(int_vector.capacity(), old_capacity);
+			old_capacity = int_vector.capacity();
 		}
 	}
 }
@@ -346,7 +346,7 @@ TEST_F(VectorTest, MoveSemantics)
 
 	ach::vector<std::string> moved_vector = std::move(string_vector);
 	EXPECT_TRUE(string_vector.empty());
-	EXPECT_EQ(moved_vector.size_val(), 2);
+	EXPECT_EQ(moved_vector.size(), 2);
 	EXPECT_EQ(moved_vector[0], "Hello");
 	EXPECT_EQ(moved_vector[1], "World");
 }
@@ -354,7 +354,7 @@ TEST_F(VectorTest, MoveSemantics)
 TEST_F(VectorTest, AssignOperations)
 {
 	int_vector.assign(5, 42);
-	EXPECT_EQ(int_vector.size_val(), 5);
+	EXPECT_EQ(int_vector.size(), 5);
 	for (const auto &val: int_vector)
 	{
 		EXPECT_EQ(val, 42);
@@ -362,14 +362,14 @@ TEST_F(VectorTest, AssignOperations)
 
 	std::vector<int> data = { 1, 2, 3 };
 	int_vector.assign(data.begin(), data.end());
-	EXPECT_EQ(int_vector.size_val(), 3);
+	EXPECT_EQ(int_vector.size(), 3);
 	for (size_t i = 0; i < data.size(); ++i)
 	{
 		EXPECT_EQ(int_vector[i], data[i]);
 	}
 
 	int_vector.assign({ 4, 5, 6, 7 });
-	EXPECT_EQ(int_vector.size_val(), 4);
+	EXPECT_EQ(int_vector.size(), 4);
 	EXPECT_EQ(int_vector[0], 4);
 	EXPECT_EQ(int_vector[3], 7);
 }

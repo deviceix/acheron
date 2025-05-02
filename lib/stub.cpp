@@ -4,8 +4,11 @@
 #include <acheron/atomic>
 #include <acheron/cast>
 #include <acheron/cstring>
+#include <acheron/deque>
 #include <acheron/list>
 #include <acheron/memory>
+#include <acheron/queue>
+#include <acheron/stack>
 #include <acheron/string>
 #include <acheron/unordered_map>
 #include <acheron/vector>

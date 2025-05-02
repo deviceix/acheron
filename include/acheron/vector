@@ -39,7 +39,7 @@ namespace ach
         vector() : vector(Allocator()) {}
 
         explicit vector(const Allocator &alloc)
-            : allocator(alloc), data(nullptr), size(0), capacity(0) {}
+            : allocator(alloc), data(nullptr), sz(0), cap(0) {}
 
         explicit vector(size_type count, const Allocator &alloc = Allocator())
             : vector(alloc)
@@ -49,8 +49,8 @@ namespace ach
                 data = allocate(count);
                 for (size_type i = 0; i < count; ++i)
                     std::construct_at(data + i);
-                size = count;
-                capacity = count;
+                sz = count;
+                cap = count;
             }
         }
 
@@ -62,8 +62,8 @@ namespace ach
                 data = allocate(count);
                 for (size_type i = 0; i < count; ++i)
                     std::construct_at(data + i, value);
-                size = count;
-                capacity = count;
+                sz = count;
+                cap = count;
             }
         }
 
@@ -81,8 +81,8 @@ namespace ach
                     data = allocate(count);
                     for (size_type i = 0; first != last; ++first, ++i)
                         std::construct_at(data + i, *first);
-                    size = count;
-                    capacity = count;
+                    sz = count;
+                    cap = count;
                 }
             }
             else
@@ -94,23 +94,23 @@ namespace ach
 
         vector(const vector &other) : vector(other.get_allocator())
         {
-            if (other.size > 0)
+            if (other.sz > 0)
             {
-                data = allocate(other.size);
-                for (size_type i = 0; i < other.size; ++i)
+                data = allocate(other.sz);
+                for (size_type i = 0; i < other.sz; ++i)
                     std::construct_at(data + i, other[i]);
-                size = other.size;
-                capacity = other.size;
+                sz = other.sz;
+                cap = other.sz;
             }
         }
 
         vector(vector &&other) noexcept
             : allocator(std::move(other.allocator)), data(other.data),
-              size(other.size), capacity(other.capacity)
+              sz(other.sz), cap(other.cap)
         {
             other.data = nullptr;
-            other.size = 0;
-            other.capacity = 0;
+            other.sz = 0;
+            other.cap = 0;
         }
 
         vector(std::initializer_list<T> init, const Allocator &alloc = Allocator())
@@ -119,7 +119,7 @@ namespace ach
         ~vector()
         {
             clear();
-            deallocate(data, capacity);
+            deallocate(data, cap);
         }
 
         /* assignment operators */
@@ -127,27 +127,27 @@ namespace ach
         {
             if (this != &other)
             {
-                if (capacity < other.size)
+                if (cap < other.sz)
                 {
                     vector tmp(other);
                     swap(tmp);
                 }
                 else
                 {
-                    if (size > other.size)
+                    if (sz > other.sz)
                     {
-                        for (size_type i = 0; i < other.size; ++i)
+                        for (size_type i = 0; i < other.sz; ++i)
                             data[i] = other[i];
-                        destroy_range(data + other.size, data + size);
+                        destroy_range(data + other.sz, data + sz);
                     }
                     else
                     {
-                        for (size_type i = 0; i < size; ++i)
+                        for (size_type i = 0; i < sz; ++i)
                             data[i] = other[i];
-                        for (size_type i = size; i < other.size; ++i)
+                        for (size_type i = sz; i < other.sz; ++i)
                             std::construct_at(data + i, other[i]);
                     }
-                    size = other.size;
+                    sz = other.sz;
                 }
             }
             return *this;
@@ -158,16 +158,16 @@ namespace ach
             if (this != &other)
             {
                 clear();
-                deallocate(data, capacity);
+                deallocate(data, cap);
 
                 data = other.data;
-                size = other.size;
-                capacity = other.capacity;
+                sz = other.sz;
+                cap = other.cap;
                 allocator = std::move(other.allocator);
 
                 other.data = nullptr;
-                other.size = 0;
-                other.capacity = 0;
+                other.sz = 0;
+                other.cap = 0;
             }
             return *this;
         }
@@ -182,15 +182,15 @@ namespace ach
         void assign(size_type count, const T &value)
         {
             clear();
-            if (count > capacity)
+            if (count > cap)
             {
-                deallocate(data, capacity);
+                deallocate(data, cap);
                 data = allocate(count);
-                capacity = count;
+                cap = count;
             }
             for (size_type i = 0; i < count; ++i)
                 std::construct_at(data + i, value);
-            size = count;
+            sz = count;
         }
 
         template<typename InputIt>
@@ -202,15 +202,15 @@ namespace ach
                                         std::random_access_iterator_tag>)
             {
                 size_type count = std::distance(first, last);
-                if (count > capacity)
+                if (count > cap)
                 {
-                    deallocate(data, capacity);
+                    deallocate(data, cap);
                     data = allocate(count);
-                    capacity = count;
+                    cap = count;
                 }
                 for (size_type i = 0; first != last; ++first, ++i)
                     std::construct_at(data + i, *first);
-                size = count;
+                sz = count;
             }
             else
             {
@@ -227,14 +227,14 @@ namespace ach
         /* element access */
         reference at(size_type pos)
         {
-            if (pos >= size)
+            if (pos >= sz)
                 throw std::out_of_range("vector::at");
             return data[pos];
         }
 
         const_reference at(size_type pos) const
         {
-            if (pos >= size)
+            if (pos >= sz)
                 throw std::out_of_range("vector::at");
             return data[pos];
         }
@@ -261,12 +261,12 @@ namespace ach
 
         reference back()
         {
-            return data[size - 1];
+            return data[sz - 1];
         }
 
         const_reference back() const
         {
-            return data[size - 1];
+            return data[sz - 1];
         }
 
         T* data_ptr() noexcept
@@ -292,12 +292,12 @@ namespace ach
 
         iterator end() noexcept
         {
-            return data + size;
+            return data + sz;
         }
 
         const_iterator end() const noexcept
         {
-            return data + size;
+            return data + sz;
         }
 
         reverse_iterator rbegin() noexcept
@@ -343,12 +343,12 @@ namespace ach
         /* capacity */
         [[nodiscard]] bool empty() const noexcept
         {
-            return size == 0;
+            return sz == 0;
         }
 
-        [[nodiscard]] size_type size_val() const noexcept
+        [[nodiscard]] size_type size() const noexcept
         {
-            return size;
+            return sz;
         }
 
         [[nodiscard]] static size_type max_size() noexcept
@@ -358,45 +358,45 @@ namespace ach
 
         void reserve(size_type new_cap)
         {
-            if (new_cap > capacity)
+            if (new_cap > cap)
             {
                 pointer new_data = allocate(new_cap);
                 if (data)
                 {
-                    for (size_type i = 0; i < size; ++i)
+                    for (size_type i = 0; i < sz; ++i)
                         std::construct_at(new_data + i, std::move(data[i]));
-                    destroy_range(data, data + size);
-                    deallocate(data, capacity);
+                    destroy_range(data, data + sz);
+                    deallocate(data, cap);
                 }
                 data = new_data;
-                capacity = new_cap;
+                cap = new_cap;
             }
         }
 
-        [[nodiscard]] size_type capacity_val() const noexcept
+        [[nodiscard]] size_type capacity() const noexcept
         {
-            return capacity;
+            return cap;
         }
 
         void shrink_to_fit()
         {
-            if (capacity > size)
+            if (cap > sz)
             {
-                if (size == 0)
+                if (sz == 0)
                 {
-                    deallocate(data, capacity);
+                    deallocate(data, cap);
                     data = nullptr;
-                    capacity = 0;
+                    cap = 0;
                 }
                 else
                 {
-                    pointer new_data = allocate(size);
-                    for (size_type i = 0; i < size; ++i)
+                    pointer new_data = allocate(sz);
+                    for (size_type i = 0; i < sz; ++i)
                         std::construct_at(new_data + i, std::move(data[i]));
-                    destroy_range(data, data + size);
-                    deallocate(data, capacity);
+                    destroy_range(data, data + sz);
+                    deallocate(data, cap);
                     data = new_data;
-                    capacity = size;
+                    cap = sz;
                 }
             }
         }
@@ -404,20 +404,20 @@ namespace ach
         /* modifiers */
         void clear() noexcept
         {
-            destroy_range(data, data + size);
-            size = 0;
+            destroy_range(data, data + sz);
+            sz = 0;
         }
 
         iterator insert(const_iterator position, const T &value)
         {
             size_type pos = position - begin();
-            if (size == capacity)
-                reserve(capacity == 0 ? 1 : capacity * 2);
+            if (sz == cap)
+                reserve(cap == 0 ? 1 : cap * 2);
 
-            if (pos < size)
+            if (pos < sz)
             {
-                std::construct_at(data + size, std::move(data[size - 1]));
-                for (size_type i = size - 1; i > pos; --i)
+                std::construct_at(data + sz, std::move(data[sz - 1]));
+                for (size_type i = sz - 1; i > pos; --i)
                     data[i] = std::move(data[i - 1]);
                 data[pos] = value;
             }
@@ -425,20 +425,20 @@ namespace ach
             {
                 std::construct_at(data + pos, value);
             }
-            ++size;
+            ++sz;
             return begin() + pos;
         }
 
         iterator insert(const_iterator position, T &&value)
         {
             size_type pos = position - begin();
-            if (size == capacity)
-                reserve(capacity == 0 ? 1 : capacity * 2);
+            if (sz == cap)
+                reserve(cap == 0 ? 1 : cap * 2);
 
-            if (pos < size)
+            if (pos < sz)
             {
-                std::construct_at(data + size, std::move(data[size - 1]));
-                for (size_type i = size - 1; i > pos; --i)
+                std::construct_at(data + sz, std::move(data[sz - 1]));
+                for (size_type i = sz - 1; i > pos; --i)
                     data[i] = std::move(data[i - 1]);
                 data[pos] = std::move(value);
             }
@@ -446,7 +446,7 @@ namespace ach
             {
                 std::construct_at(data + pos, std::move(value));
             }
-            ++size;
+            ++sz;
             return begin() + pos;
         }
 
@@ -456,15 +456,15 @@ namespace ach
             if (count == 0)
                 return begin() + pos;
 
-            if (size + count > capacity)
-                reserve(std::max(size + count, capacity * 2));
+            if (sz + count > cap)
+                reserve(std::max(sz + count, cap * 2));
 
-            if (pos < size)
+            if (pos < sz)
             {
-                size_type elements_to_move = size - pos;
+                size_type elements_to_move = sz - pos;
                 if (count < elements_to_move)
                 {
-                    for (size_type i = size + count - 1; i >= pos + count; --i)
+                    for (size_type i = sz + count - 1; i >= pos + count; --i)
                         std::construct_at(data + i, std::move(data[i - count]));
                     for (size_type i = 0; i < count; ++i)
                         data[pos + i] = value;
@@ -482,7 +482,7 @@ namespace ach
                 for (size_type i = 0; i < count; ++i)
                     std::construct_at(data + pos + i, value);
             }
-            size += count;
+            sz += count;
             return begin() + pos;
         }
 
@@ -499,15 +499,15 @@ namespace ach
                 if (count == 0)
                     return begin() + pos;
 
-                if (size + count > capacity)
-                    reserve(std::max(size + count, capacity * 2));
+                if (sz + count > cap)
+                    reserve(std::max(sz + count, cap * 2));
 
-                if (pos < size)
+                if (pos < sz)
                 {
-                    size_type elements_to_move = size - pos;
+                    size_type elements_to_move = sz - pos;
                     if (count < elements_to_move)
                     {
-                        for (size_type i = size + count - 1; i >= pos + count; --i)
+                        for (size_type i = sz + count - 1; i >= pos + count; --i)
                             std::construct_at(data + i, std::move(data[i - count]));
                         std::copy(first, last, data + pos);
                     }
@@ -524,7 +524,7 @@ namespace ach
                     for (size_type i = 0; first != last; ++first, ++i)
                         std::construct_at(data + pos + i, *first);
                 }
-                size += count;
+                sz += count;
             }
             else
             {
@@ -544,13 +544,13 @@ namespace ach
         iterator emplace(const_iterator position, Args &&... args)
         {
             size_type pos = position - begin();
-            if (size == capacity)
-                reserve(capacity == 0 ? 1 : capacity * 2);
+            if (sz == cap)
+                reserve(cap == 0 ? 1 : cap * 2);
 
-            if (pos < size)
+            if (pos < sz)
             {
-                std::construct_at(data + size, std::move(data[size - 1]));
-                for (size_type i = size - 1; i > pos; --i)
+                std::construct_at(data + sz, std::move(data[sz - 1]));
+                for (size_type i = sz - 1; i > pos; --i)
                     data[i] = std::move(data[i - 1]);
                 std::destroy_at(data + pos);
                 std::construct_at(data + pos, std::forward<Args>(args)...);
@@ -559,7 +559,7 @@ namespace ach
             {
                 std::construct_at(data + pos, std::forward<Args>(args)...);
             }
-            ++size;
+            ++sz;
             return begin() + pos;
         }
 
@@ -568,10 +568,10 @@ namespace ach
             size_type pos = position - begin();
             std::destroy_at(data + pos);
 
-            for (size_type i = pos; i < size - 1; ++i)
+            for (size_type i = pos; i < sz - 1; ++i)
                 data[i] = std::move(data[i + 1]);
 
-            --size;
+            --sz;
             return begin() + pos;
         }
 
@@ -586,83 +586,83 @@ namespace ach
 
             destroy_range(data + start, data + end);
 
-            for (size_type i = start; i < size - count; ++i)
+            for (size_type i = start; i < sz - count; ++i)
                 data[i] = std::move(data[i + count]);
 
-            size -= count;
+            sz -= count;
             return begin() + start;
         }
 
         void push_back(const T &value)
         {
-            if (size == capacity)
-                reserve(capacity == 0 ? 1 : capacity * 2);
-            std::construct_at(data + size, value);
-            ++size;
+            if (sz == cap)
+                reserve(cap == 0 ? 1 : cap * 2);
+            std::construct_at(data + sz, value);
+            ++sz;
         }
 
         void push_back(T &&value)
         {
-            if (size == capacity)
-                reserve(capacity == 0 ? 1 : capacity * 2);
-            std::construct_at(data + size, std::move(value));
-            ++size;
+            if (sz == cap)
+                reserve(cap == 0 ? 1 : cap * 2);
+            std::construct_at(data + sz, std::move(value));
+            ++sz;
         }
 
         template<typename... Args>
         reference emplace_back(Args &&... args)
         {
-            if (size == capacity)
-                reserve(capacity == 0 ? 1 : capacity * 2);
-            std::construct_at(data + size, std::forward<Args>(args)...);
-            ++size;
-            return data[size - 1];
+            if (sz == cap)
+                reserve(cap == 0 ? 1 : cap * 2);
+            std::construct_at(data + sz, std::forward<Args>(args)...);
+            ++sz;
+            return data[sz - 1];
         }
 
         void pop_back()
         {
             if (!empty())
             {
-                --size;
-                std::destroy_at(data + size);
+                --sz;
+                std::destroy_at(data + sz);
             }
         }
 
         void resize(size_type count)
         {
-            if (count < size)
+            if (count < sz)
             {
-                destroy_range(data + count, data + size);
+                destroy_range(data + count, data + sz);
             }
-            else if (count > size)
+            else if (count > sz)
             {
                 reserve(count);
-                for (size_type i = size; i < count; ++i)
+                for (size_type i = sz; i < count; ++i)
                     std::construct_at(data + i);
             }
-            size = count;
+            sz = count;
         }
 
         void resize(size_type count, const value_type &value)
         {
-            if (count < size)
+            if (count < sz)
             {
-                destroy_range(data + count, data + size);
+                destroy_range(data + count, data + sz);
             }
-            else if (count > size)
+            else if (count > sz)
             {
                 reserve(count);
-                for (size_type i = size; i < count; ++i)
+                for (size_type i = sz; i < count; ++i)
                     std::construct_at(data + i, value);
             }
-            size = count;
+            sz = count;
         }
 
         void swap(vector &other) noexcept
         {
             std::swap(data, other.data);
-            std::swap(size, other.size);
-            std::swap(capacity, other.capacity);
+            std::swap(sz, other.sz);
+            std::swap(cap, other.cap);
             std::swap(allocator, other.allocator);
         }
 
@@ -674,8 +674,8 @@ namespace ach
 
     private:
         pointer data = {};
-        size_type size = {};
-        size_type capacity = {};
+        size_type sz = {};
+        size_type cap = {};
         Allocator allocator;
 
         pointer allocate(size_type n)
@@ -700,7 +700,7 @@ namespace ach
     template<typename T, typename Alloc>
     bool operator==(const vector<T, Alloc> &lhs, const vector<T, Alloc> &rhs)
     {
-        if (lhs.size_val() != rhs.size_val())
+        if (lhs.size() != rhs.size())
             return false;
 
         return std::equal(lhs.begin(), lhs.end(), rhs.begin());

@@ -41,7 +41,10 @@ if (ACHERON_BUILD_TEST)
             tests/cstring/memops.cpp
             tests/cstring/strops.cpp
             tests/memory/allocator.cpp
+            tests/deque.cpp
             tests/list.cpp
+            tests/queue.cpp
+            tests/stack.cpp
             tests/string.cpp
             tests/unordered_map.cpp
             tests/vector.cpp

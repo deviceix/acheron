@@ -70,7 +70,7 @@ The project is actively being developed. The API aims for standard library compa
 | Hash Containers       | Complete | unordered_map with Robin Hood hashing  |
 | Dynamic Containers    | Planned  | deque, dynamic_bitset                  |
 | Ordered Containers    | Planned  | map, set                               |
-| Stack/Queue Adapters  | Planned  | stack, queue                           |
+| Stack/Queue Adapters  | Complete | stack, queue                           |
 | Algorithms            | Planned  | Sorting, searching, transformations    |
 | Concurrent Containers | Planned  | Thread-safe variants of all containers |
 

@@ -1,0 +1,793 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+// ReSharper disable CppNonExplicitConvertingConstructor
+#pragma once
+
+#include <algorithm>
+#include <concepts>
+#include <functional>
+#include <initializer_list>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+    template<typename T, typename Allocator = allocator<T> >
+    class deque
+    {
+    public:
+        using value_type = T;
+        using allocator_type = Allocator;
+        using size_type = size_t;
+        using difference_type = ptrdiff_t;
+        using reference = value_type &;
+        using const_reference = const value_type &;
+        using pointer = typename std::allocator_traits<Allocator>::pointer;
+        using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+
+    private:
+        static constexpr size_type CHUNK_SIZE = 512 / sizeof(T) > 0 ? 512 / sizeof(T) : 1;
+
+        struct chunk
+        {
+            pointer data;
+
+            chunk() : data(nullptr) {}
+
+            ~chunk()
+            {
+                /* data is deallocated by the deque destructor */
+            }
+        };
+
+        using chunk_allocator = typename std::allocator_traits<Allocator>::template rebind_alloc<chunk>;
+        using chunk_pointer = typename std::allocator_traits<chunk_allocator>::pointer;
+
+    public:
+        /* iterators */
+        class iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = deque::value_type;
+            using pointer = deque::pointer;
+            using reference = deque::reference;
+            using iterator_category = std::random_access_iterator_tag;
+
+            iterator() : owner(nullptr), index(0) {}
+
+            iterator(deque* d, size_type i) : owner(d), index(i) {}
+
+            reference operator*() const
+            {
+                return (*owner)[index];
+            }
+
+            pointer operator->() const
+            {
+                return &(operator*());
+            }
+
+            iterator& operator++()
+            {
+                ++index;
+                return *this;
+            }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            iterator& operator--()
+            {
+                --index;
+                return *this;
+            }
+
+            iterator operator--(int)
+            {
+                iterator tmp = *this;
+                --(*this);
+                return tmp;
+            }
+
+            iterator& operator+=(difference_type n)
+            {
+                index += n;
+                return *this;
+            }
+
+            iterator& operator-=(difference_type n)
+            {
+                index -= n;
+                return *this;
+            }
+
+            iterator operator+(difference_type n) const
+            {
+                iterator tmp = *this;
+                return tmp += n;
+            }
+
+            iterator operator-(difference_type n) const
+            {
+                iterator tmp = *this;
+                return tmp -= n;
+            }
+
+            difference_type operator-(const iterator& other) const
+            {
+                return index - other.index;
+            }
+
+            reference operator[](difference_type n) const
+            {
+                return *(*this + n);
+            }
+
+            bool operator==(const iterator& other) const
+            {
+                return index == other.index;
+            }
+
+            bool operator!=(const iterator& other) const
+            {
+                return !(*this == other);
+            }
+
+            bool operator<(const iterator& other) const
+            {
+                return index < other.index;
+            }
+
+            bool operator<=(const iterator& other) const
+            {
+                return !(other < *this);
+            }
+
+            bool operator>(const iterator& other) const
+            {
+                return other < *this;
+            }
+
+            bool operator>=(const iterator& other) const
+            {
+                return !(*this < other);
+            }
+
+        private:
+            deque* owner;
+            size_type index;
+            friend class deque;
+        };
+
+        /* const_iterator - simplified version */
+        class const_iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = deque::value_type;
+            using pointer = deque::const_pointer;
+            using reference = deque::const_reference;
+            using iterator_category = std::random_access_iterator_tag;
+
+            const_iterator() : owner(nullptr), index(0) {}
+
+            const_iterator(const deque* d, size_type i) : owner(d), index(i) {}
+
+            const_iterator(const iterator& it) : owner(it.owner), index(it.index) {}
+
+            const_reference operator*() const
+            {
+                return (*owner)[index];
+            }
+
+            const_pointer operator->() const
+            {
+                return &(operator*());
+            }
+
+            const_iterator& operator++()
+            {
+                ++index;
+                return *this;
+            }
+
+            const_iterator operator++(int)
+            {
+                const_iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            const_iterator& operator--()
+            {
+                --index;
+                return *this;
+            }
+
+            const_iterator operator--(int)
+            {
+                const_iterator tmp = *this;
+                --(*this);
+                return tmp;
+            }
+
+            const_iterator& operator+=(difference_type n)
+            {
+                index += n;
+                return *this;
+            }
+
+            const_iterator& operator-=(difference_type n)
+            {
+                index -= n;
+                return *this;
+            }
+
+            const_iterator operator+(difference_type n) const
+            {
+                const_iterator tmp = *this;
+                return tmp += n;
+            }
+
+            const_iterator operator-(difference_type n) const
+            {
+                const_iterator tmp = *this;
+                return tmp -= n;
+            }
+
+            difference_type operator-(const const_iterator& other) const
+            {
+                return index - other.index;
+            }
+
+            const_reference operator[](difference_type n) const
+            {
+                return *(*this + n);
+            }
+
+            bool operator==(const const_iterator& other) const
+            {
+                return index == other.index;
+            }
+
+            bool operator!=(const const_iterator& other) const
+            {
+                return !(*this == other);
+            }
+
+            bool operator<(const const_iterator& other) const
+            {
+                return index < other.index;
+            }
+
+            bool operator<=(const const_iterator& other) const
+            {
+                return !(other < *this);
+            }
+
+            bool operator>(const const_iterator& other) const
+            {
+                return other < *this;
+            }
+
+            bool operator>=(const const_iterator& other) const
+            {
+                return !(*this < other);
+            }
+
+        private:
+            const deque* owner;
+            size_type index;
+            friend class deque;
+        };
+
+        using reverse_iterator = std::reverse_iterator<iterator>;
+        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+        /* constructors */
+        deque() : deque(Allocator()) {}
+
+        explicit deque(const Allocator& alloc)
+            : allocator(alloc), chunk_alloc(alloc), map(nullptr),
+              map_size(0), start_index(0), elements(0)
+        {
+            init_map(8);
+        }
+
+        explicit deque(size_type count, const Allocator& alloc = Allocator())
+            : deque(alloc)
+        {
+            resize(count);
+        }
+
+        deque(size_type count, const T& value, const Allocator& alloc = Allocator())
+            : deque(alloc)
+        {
+            resize(count, value);
+        }
+
+        template<typename InputIt>
+            requires std::input_iterator<InputIt>
+        deque(InputIt first, InputIt last, const Allocator& alloc = Allocator())
+            : deque(alloc)
+        {
+            for (; first != last; ++first)
+                push_back(*first);
+        }
+
+        deque(const deque& other) : deque(other.get_allocator())
+        {
+            for (const auto& item : other)
+                push_back(item);
+        }
+
+        deque(deque&& other) noexcept
+            : allocator(std::move(other.allocator)),
+              chunk_alloc(std::move(other.chunk_alloc)),
+              map(other.map), map_size(other.map_size),
+              start_index(other.start_index), elements(other.elements)
+        {
+            other.map = nullptr;
+            other.map_size = 0;
+            other.start_index = 0;
+            other.elements = 0;
+        }
+
+        deque(std::initializer_list<T> init, const Allocator& alloc = Allocator())
+            : deque(init.begin(), init.end(), alloc) {}
+
+        ~deque()
+        {
+            clear();
+            deallocate_map();
+        }
+
+        /* assignment */
+        deque& operator=(const deque& other)
+        {
+            if (this != &other)
+            {
+                clear();
+                for (const auto& item : other)
+                    push_back(item);
+            }
+            return *this;
+        }
+
+        deque& operator=(deque&& other) noexcept
+        {
+            if (this != &other)
+            {
+                clear();
+                deallocate_map();
+
+                allocator = std::move(other.allocator);
+                chunk_alloc = std::move(other.chunk_alloc);
+                map = other.map;
+                map_size = other.map_size;
+                start_index = other.start_index;
+                elements = other.elements;
+
+                other.map = nullptr;
+                other.map_size = 0;
+                other.start_index = 0;
+                other.elements = 0;
+            }
+            return *this;
+        }
+
+        deque& operator=(std::initializer_list<T> ilist)
+        {
+            clear();
+            for (const auto& item : ilist)
+                push_back(item);
+            return *this;
+        }
+
+        /* element access */
+        reference at(size_type pos)
+        {
+            if (pos >= elements)
+                throw std::out_of_range("deque::at");
+            return (*this)[pos];
+        }
+
+        const_reference at(size_type pos) const
+        {
+            if (pos >= elements)
+                throw std::out_of_range("deque::at");
+            return (*this)[pos];
+        }
+
+        reference operator[](size_type pos)
+        {
+            size_type actual_index = start_index + pos;
+            size_type chunk_index = actual_index / CHUNK_SIZE;
+            size_type offset = actual_index % CHUNK_SIZE;
+            return map[chunk_index].data[offset];
+        }
+
+        const_reference operator[](size_type pos) const
+        {
+            size_type actual_index = start_index + pos;
+            size_type chunk_index = actual_index / CHUNK_SIZE;
+            size_type offset = actual_index % CHUNK_SIZE;
+            return map[chunk_index].data[offset];
+        }
+
+        reference front()
+        {
+            return (*this)[0];
+        }
+
+        const_reference front() const
+        {
+            return (*this)[0];
+        }
+
+        reference back()
+        {
+            return (*this)[elements - 1];
+        }
+
+        const_reference back() const
+        {
+            return (*this)[elements - 1];
+        }
+
+        /* iterators */
+        iterator begin() noexcept { return iterator(this, 0); }
+        const_iterator begin() const noexcept { return const_iterator(this, 0); }
+        iterator end() noexcept { return iterator(this, elements); }
+        const_iterator end() const noexcept { return const_iterator(this, elements); }
+
+        reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+        const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+        reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+        const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+
+        const_iterator cbegin() const noexcept { return begin(); }
+        const_iterator cend() const noexcept { return end(); }
+        const_reverse_iterator crbegin() const noexcept { return rbegin(); }
+        const_reverse_iterator crend() const noexcept { return rend(); }
+
+        /* capacity */
+        [[nodiscard]] bool empty() const noexcept { return elements == 0; }
+        [[nodiscard]] size_type size() const noexcept { return elements; }
+        [[nodiscard]] static size_type max_size() noexcept
+        {
+            return std::numeric_limits<size_type>::max() / sizeof(T);
+        }
+
+        void shrink_to_fit()
+        {
+            /* could reallocate to remove unused chunks */
+            /* left as future optimization */
+        }
+
+        /* modifiers */
+        void clear() noexcept
+        {
+            destroy_elements();
+            elements = 0;
+        }
+
+        void push_back(const T& value)
+        {
+            ensure_back_capacity();
+            size_type actual_index = start_index + elements;
+            size_type chunk_index = actual_index / CHUNK_SIZE;
+            size_type offset = actual_index % CHUNK_SIZE;
+
+            if (!map[chunk_index].data)
+                allocate_chunk(chunk_index);
+
+            std::construct_at(&map[chunk_index].data[offset], value);
+            ++elements;
+        }
+
+        void push_back(T&& value)
+        {
+            ensure_back_capacity();
+            size_type actual_index = start_index + elements;
+            size_type chunk_index = actual_index / CHUNK_SIZE;
+            size_type offset = actual_index % CHUNK_SIZE;
+
+            if (!map[chunk_index].data)
+                allocate_chunk(chunk_index);
+
+            std::construct_at(&map[chunk_index].data[offset], std::move(value));
+            ++elements;
+        }
+
+        template<typename... Args>
+        reference emplace_back(Args&&... args)
+        {
+            ensure_back_capacity();
+            size_type actual_index = start_index + elements;
+            size_type chunk_index = actual_index / CHUNK_SIZE;
+            size_type offset = actual_index % CHUNK_SIZE;
+
+            if (!map[chunk_index].data)
+                allocate_chunk(chunk_index);
+
+            std::construct_at(&map[chunk_index].data[offset], std::forward<Args>(args)...);
+            ++elements;
+            return map[chunk_index].data[offset];
+        }
+
+        void pop_back()
+        {
+            if (!empty())
+            {
+                --elements;
+                size_type actual_index = start_index + elements;
+                size_type chunk_index = actual_index / CHUNK_SIZE;
+                size_type offset = actual_index % CHUNK_SIZE;
+                std::destroy_at(&map[chunk_index].data[offset]);
+            }
+        }
+
+        void push_front(const T& value)
+        {
+            ensure_front_capacity();
+            if (start_index == 0)
+                expand_front();
+
+            --start_index;
+            size_type chunk_index = start_index / CHUNK_SIZE;
+            size_type offset = start_index % CHUNK_SIZE;
+
+            if (!map[chunk_index].data)
+                allocate_chunk(chunk_index);
+
+            std::construct_at(&map[chunk_index].data[offset], value);
+            ++elements;
+        }
+
+        void push_front(T&& value)
+        {
+            ensure_front_capacity();
+            if (start_index == 0)
+                expand_front();
+
+            --start_index;
+            size_type chunk_index = start_index / CHUNK_SIZE;
+            size_type offset = start_index % CHUNK_SIZE;
+
+            if (!map[chunk_index].data)
+                allocate_chunk(chunk_index);
+
+            std::construct_at(&map[chunk_index].data[offset], std::move(value));
+            ++elements;
+        }
+
+        template<typename... Args>
+        reference emplace_front(Args&&... args)
+        {
+            ensure_front_capacity();
+            if (start_index == 0)
+                expand_front();
+
+            --start_index;
+            size_type chunk_index = start_index / CHUNK_SIZE;
+            size_type offset = start_index % CHUNK_SIZE;
+
+            if (!map[chunk_index].data)
+                allocate_chunk(chunk_index);
+
+            std::construct_at(&map[chunk_index].data[offset], std::forward<Args>(args)...);
+            ++elements;
+            return map[chunk_index].data[offset];
+        }
+
+        void pop_front()
+        {
+            if (!empty())
+            {
+                size_type chunk_index = start_index / CHUNK_SIZE;
+                size_type offset = start_index % CHUNK_SIZE;
+                std::destroy_at(&map[chunk_index].data[offset]);
+                ++start_index;
+                --elements;
+            }
+        }
+
+        void resize(size_type count)
+        {
+            if (count < elements)
+            {
+                while (elements > count)
+                    pop_back();
+            }
+            else if (count > elements)
+            {
+                while (elements < count)
+                    push_back(T());
+            }
+        }
+
+        void resize(size_type count, const value_type& value)
+        {
+            if (count < elements)
+            {
+                while (elements > count)
+                    pop_back();
+            }
+            else if (count > elements)
+            {
+                while (elements < count)
+                    push_back(value);
+            }
+        }
+
+        void swap(deque& other) noexcept
+        {
+            std::swap(allocator, other.allocator);
+            std::swap(chunk_alloc, other.chunk_alloc);
+            std::swap(map, other.map);
+            std::swap(map_size, other.map_size);
+            std::swap(start_index, other.start_index);
+            std::swap(elements, other.elements);
+        }
+
+        /* allocator */
+        allocator_type get_allocator() const noexcept
+        {
+            return allocator;
+        }
+
+    private:
+        Allocator allocator;
+        chunk_allocator chunk_alloc;
+        chunk_pointer map;
+        size_type map_size;
+        size_type start_index;
+        size_type elements;
+
+        void init_map(size_type chunks)
+        {
+            map_size = std::max(chunks, size_type(8));
+            map = std::allocator_traits<chunk_allocator>::allocate(chunk_alloc, map_size);
+
+            for (size_type i = 0; i < map_size; ++i)
+                std::construct_at(&map[i]);
+
+            start_index = map_size * CHUNK_SIZE / 2;
+        }
+
+        void allocate_chunk(size_type index)
+        {
+            map[index].data = std::allocator_traits<Allocator>::allocate(allocator, CHUNK_SIZE);
+        }
+
+        void deallocate_map()
+        {
+            if (map)
+            {
+                for (size_type i = 0; i < map_size; ++i)
+                {
+                    if (map[i].data)
+                        std::allocator_traits<Allocator>::deallocate(allocator, map[i].data, CHUNK_SIZE);
+                    std::destroy_at(&map[i]);
+                }
+                std::allocator_traits<chunk_allocator>::deallocate(chunk_alloc, map, map_size);
+                map = nullptr;
+            }
+        }
+
+        void destroy_elements()
+        {
+            for (size_type i = 0; i < elements; ++i)
+            {
+                size_type actual_index = start_index + i;
+                size_type chunk_index = actual_index / CHUNK_SIZE;
+                size_type offset = actual_index % CHUNK_SIZE;
+                std::destroy_at(&map[chunk_index].data[offset]);
+            }
+        }
+
+        void ensure_back_capacity()
+        {
+            size_type end_index = start_index + elements;
+            if (end_index >= map_size * CHUNK_SIZE)
+                expand_back();
+        }
+
+        void ensure_front_capacity()
+        {
+            if (start_index == 0)
+                expand_front();
+        }
+
+        void expand_back()
+        {
+            size_type new_map_size = map_size * 2;
+            chunk_pointer new_map = std::allocator_traits<chunk_allocator>::allocate(chunk_alloc, new_map_size);
+
+            for (size_type i = 0; i < new_map_size; ++i)
+                std::construct_at(&new_map[i]);
+
+            for (size_type i = 0; i < map_size; ++i)
+                new_map[i] = map[i];
+
+            std::allocator_traits<chunk_allocator>::deallocate(chunk_alloc, map, map_size);
+            map = new_map;
+            map_size = new_map_size;
+        }
+
+        void expand_front()
+        {
+            size_type new_map_size = map_size * 2;
+            chunk_pointer new_map = std::allocator_traits<chunk_allocator>::allocate(chunk_alloc, new_map_size);
+
+            for (size_type i = 0; i < new_map_size; ++i)
+                std::construct_at(&new_map[i]);
+
+            size_type offset = new_map_size - map_size;
+            for (size_type i = 0; i < map_size; ++i)
+                new_map[i + offset] = map[i];
+
+            std::allocator_traits<chunk_allocator>::deallocate(chunk_alloc, map, map_size);
+            map = new_map;
+            map_size = new_map_size;
+            start_index += offset * CHUNK_SIZE;
+        }
+    };
+
+    /* non-member functions */
+    template<typename T, typename Alloc>
+    bool operator==(const deque<T, Alloc>& lhs, const deque<T, Alloc>& rhs)
+    {
+        if (lhs.size() != rhs.size())
+            return false;
+
+        return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+    }
+
+    template<typename T, typename Alloc>
+    bool operator!=(const deque<T, Alloc>& lhs, const deque<T, Alloc>& rhs)
+    {
+        return !(lhs == rhs);
+    }
+
+    template<typename T, typename Alloc>
+    bool operator<(const deque<T, Alloc>& lhs, const deque<T, Alloc>& rhs)
+    {
+        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    }
+
+    template<typename T, typename Alloc>
+    bool operator<=(const deque<T, Alloc>& lhs, const deque<T, Alloc>& rhs)
+    {
+        return !(rhs < lhs);
+    }
+
+    template<typename T, typename Alloc>
+    bool operator>(const deque<T, Alloc>& lhs, const deque<T, Alloc>& rhs)
+    {
+        return rhs < lhs;
+    }
+
+    template<typename T, typename Alloc>
+    bool operator>=(const deque<T, Alloc>& lhs, const deque<T, Alloc>& rhs)
+    {
+        return !(lhs < rhs);
+    }
+
+    template<typename T, typename Alloc>
+    void swap(deque<T, Alloc>& lhs, deque<T, Alloc>& rhs) noexcept
+    {
+        lhs.swap(rhs);
+    }
+}
