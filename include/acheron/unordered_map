@@ -1,0 +1,850 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+// ReSharper disable CppNonExplicitConvertingConstructor
+#pragma once
+
+#include <algorithm>
+#include <cmath>
+#include <functional>
+#include <initializer_list>
+#include <iterator>
+#include <limits>
+#include <stdexcept>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+    template<
+        class Key,
+        class T,
+        class Hash = std::hash<Key>,
+        class KeyEqual = std::equal_to<Key>,
+        class Allocator = allocator<std::pair<const Key, T>>
+    >
+    class unordered_map
+    {
+    public:
+        using key_type = Key;
+        using mapped_type = T;
+        using value_type = std::pair<const Key, T>;
+        using size_type = size_t;
+        using difference_type = ptrdiff_t;
+        using hasher = Hash;
+        using key_equal = KeyEqual;
+        using allocator_type = Allocator;
+        using reference = value_type&;
+        using const_reference = const value_type&;
+        using pointer = value_type*;
+        using const_pointer = const value_type*;
+
+    private:
+        struct bucket_entry
+        {
+            pointer data = nullptr;
+            bool occupied = false;
+            int8_t probe_dist = -1;  /* Robin Hood probe distance */
+
+            bucket_entry() = default;
+
+            ~bucket_entry()
+            {
+                delete data;
+            }
+
+            bucket_entry(const bucket_entry& other)
+                : occupied(other.occupied), probe_dist(other.probe_dist)
+            {
+                if (other.data)
+                    data = new value_type(*other.data);
+            }
+
+            bucket_entry(bucket_entry&& other) noexcept
+                : data(other.data), occupied(other.occupied), probe_dist(other.probe_dist)
+            {
+                other.data = nullptr;
+                other.occupied = false;
+                other.probe_dist = -1;
+            }
+
+            bucket_entry& operator=(const bucket_entry& other)
+            {
+                if (this != &other)
+                {
+                    delete data;
+                    occupied = other.occupied;
+                    probe_dist = other.probe_dist;
+                    if (other.data)
+                        data = new value_type(*other.data);
+                    else
+                        data = nullptr;
+                }
+                return *this;
+            }
+
+            bucket_entry& operator=(bucket_entry&& other) noexcept
+            {
+                if (this != &other)
+                {
+                    delete data;
+                    data = other.data;
+                    occupied = other.occupied;
+                    probe_dist = other.probe_dist;
+                    other.data = nullptr;
+                    other.occupied = false;
+                    other.probe_dist = -1;
+                }
+                return *this;
+            }
+        };
+
+    public:
+        /* iterators - simplified like vector */
+        class iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = unordered_map::value_type;
+            using pointer = value_type*;
+            using reference = value_type&;
+            using iterator_category = std::forward_iterator_tag;
+
+            iterator(bucket_entry* ptr, bucket_entry* end) : current(ptr), end(end)
+            {
+                /* find first valid entry */
+                while (current != end && (!current->occupied || !current->data))
+                    ++current;
+            }
+
+            reference operator*() { return *(current->data); }
+            pointer operator->() { return current->data; }
+
+            iterator& operator++()
+            {
+                ++current;
+                while (current != end && (!current->occupied || !current->data))
+                    ++current;
+                return *this;
+            }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            bool operator==(const iterator& other) const { return current == other.current; }
+            bool operator!=(const iterator& other) const { return current != other.current; }
+
+        private:
+            bucket_entry* current;
+            bucket_entry* end;
+            friend class unordered_map;
+        };
+
+        class const_iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = unordered_map::value_type;
+            using pointer = const value_type*;
+            using reference = const value_type&;
+            using iterator_category = std::forward_iterator_tag;
+
+            const_iterator(const bucket_entry* ptr, const bucket_entry* end)
+                : current(ptr), end(end)
+            {
+                /* find first valid entry */
+                while (current != end && (!current->occupied || !current->data))
+                    ++current;
+            }
+
+            const_iterator(const iterator& it) : current(it.current), end(it.end) {}
+
+            reference operator*() const { return *(current->data); }
+            pointer operator->() const { return current->data; }
+
+            const_iterator& operator++()
+            {
+                ++current;
+                while (current != end && (!current->occupied || !current->data))
+                    ++current;
+                return *this;
+            }
+
+            const_iterator operator++(int)
+            {
+                const_iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            bool operator==(const const_iterator& other) const { return current == other.current; }
+            bool operator!=(const const_iterator& other) const { return current != other.current; }
+
+        private:
+            const bucket_entry* current;
+            const bucket_entry* end;
+            friend class unordered_map;
+        };
+
+        using local_iterator = iterator;
+        using const_local_iterator = const_iterator;
+
+        /* constructors */
+        unordered_map() : unordered_map(16) {}
+
+        explicit unordered_map(size_type bucket_count,
+                              const Hash& hash = Hash(),
+                              const KeyEqual& equal = KeyEqual(),
+                              const Allocator& alloc = Allocator())
+            : bucket_count(next_power_of_two(bucket_count)),
+              elem_count(0), hash_fn(hash), equal_fn(equal),
+              allocator(alloc), max_load_factor_val(0.75f)
+        {
+            buckets = new bucket_entry[this->bucket_count]();
+        }
+
+        template<typename InputIt>
+        unordered_map(InputIt first, InputIt last,
+                      size_type bucket_count = 16,
+                      const Hash& hash = Hash(),
+                      const KeyEqual& equal = KeyEqual(),
+                      const Allocator& alloc = Allocator())
+            : unordered_map(bucket_count, hash, equal, alloc)
+        {
+            insert(first, last);
+        }
+
+        unordered_map(const unordered_map& other)
+            : unordered_map(other.bucket_count, other.hash_fn, other.equal_fn, other.allocator)
+        {
+            max_load_factor_val = other.max_load_factor_val;
+            for (size_type i = 0; i < other.bucket_count; ++i)
+            {
+                if (other.buckets[i].occupied && other.buckets[i].data)
+                    insert(*(other.buckets[i].data));
+            }
+        }
+
+        unordered_map(unordered_map&& other) noexcept
+            : buckets(other.buckets), bucket_count(other.bucket_count),
+              elem_count(other.elem_count), hash_fn(std::move(other.hash_fn)),
+              equal_fn(std::move(other.equal_fn)), allocator(std::move(other.allocator)),
+              max_load_factor_val(other.max_load_factor_val)
+        {
+            other.buckets = nullptr;
+            other.bucket_count = 0;
+            other.elem_count = 0;
+        }
+
+        unordered_map(std::initializer_list<value_type> init,
+                      size_type bucket_count = 16,
+                      const Hash& hash = Hash(),
+                      const KeyEqual& equal = KeyEqual(),
+                      const Allocator& alloc = Allocator())
+            : unordered_map(bucket_count, hash, equal, alloc)
+        {
+            insert(init.begin(), init.end());
+        }
+
+        ~unordered_map()
+        {
+            clear();
+            delete[] buckets;
+        }
+
+        /* assignment */
+        unordered_map& operator=(const unordered_map& other)
+        {
+            if (this != &other)
+            {
+                clear();
+                delete[] buckets;
+
+                bucket_count = other.bucket_count;
+                hash_fn = other.hash_fn;
+                equal_fn = other.equal_fn;
+                allocator = other.allocator;
+                max_load_factor_val = other.max_load_factor_val;
+
+                buckets = new bucket_entry[bucket_count]();
+                for (size_type i = 0; i < other.bucket_count; ++i)
+                {
+                    if (other.buckets[i].occupied && other.buckets[i].data)
+                        insert(*(other.buckets[i].data));
+                }
+            }
+            return *this;
+        }
+
+        unordered_map& operator=(unordered_map&& other) noexcept
+        {
+            if (this != &other)
+            {
+                clear();
+                delete[] buckets;
+
+                buckets = other.buckets;
+                bucket_count = other.bucket_count;
+                elem_count = other.elem_count;
+                hash_fn = std::move(other.hash_fn);
+                equal_fn = std::move(other.equal_fn);
+                allocator = std::move(other.allocator);
+                max_load_factor_val = other.max_load_factor_val;
+
+                other.buckets = nullptr;
+                other.bucket_count = 0;
+                other.elem_count = 0;
+            }
+            return *this;
+        }
+
+        unordered_map& operator=(std::initializer_list<value_type> ilist)
+        {
+            clear();
+            insert(ilist.begin(), ilist.end());
+            return *this;
+        }
+
+        /* allocator */
+        allocator_type get_allocator() const noexcept
+        {
+            return allocator;
+        }
+
+        /* iterators */
+        iterator begin() noexcept
+        {
+            return iterator(buckets, buckets + bucket_count);
+        }
+
+        const_iterator begin() const noexcept
+        {
+            return const_iterator(buckets, buckets + bucket_count);
+        }
+
+        iterator end() noexcept
+        {
+            return iterator(buckets + bucket_count, buckets + bucket_count);
+        }
+
+        const_iterator end() const noexcept
+        {
+            return const_iterator(buckets + bucket_count, buckets + bucket_count);
+        }
+
+        const_iterator cbegin() const noexcept
+        {
+            return begin();
+        }
+
+        const_iterator cend() const noexcept
+        {
+            return end();
+        }
+
+        /* capacity */
+        [[nodiscard]] bool empty() const noexcept
+        {
+            return elem_count == 0;
+        }
+
+        [[nodiscard]] size_type size() const noexcept
+        {
+            return elem_count;
+        }
+
+        [[nodiscard]] static size_type max_size() noexcept
+        {
+            return std::numeric_limits<size_type>::max() / sizeof(bucket_entry);
+        }
+
+        /* modifiers */
+        void clear() noexcept
+        {
+            for (size_type i = 0; i < bucket_count; ++i)
+            {
+                if (buckets[i].occupied)
+                {
+                    delete buckets[i].data;
+                    buckets[i].data = nullptr;
+                    buckets[i].occupied = false;
+                    buckets[i].probe_dist = -1;
+                }
+            }
+            elem_count = 0;
+        }
+
+        std::pair<iterator, bool> insert(const value_type& value)
+        {
+            return emplace(value);
+        }
+
+        std::pair<iterator, bool> insert(value_type&& value)
+        {
+            return emplace(std::move(value));
+        }
+
+        template<typename InputIt>
+        void insert(InputIt first, InputIt last)
+        {
+            for (; first != last; ++first)
+                insert(*first);
+        }
+
+        void insert(std::initializer_list<value_type> ilist)
+        {
+            insert(ilist.begin(), ilist.end());
+        }
+
+        template<typename... Args>
+        std::pair<iterator, bool> emplace(Args&&... args)
+        {
+            if (load_factor() > max_load_factor())
+                rehash(bucket_count * 2);
+
+            pointer new_value = new value_type(std::forward<Args>(args)...);
+            const auto& key = new_value->first;
+
+            /* check if key already exists */
+            auto existing = find(key);
+            if (existing != end())
+            {
+                delete new_value;
+                return { existing, false };
+            }
+
+            size_type idx = bucket(key);
+            int8_t dist = 0;
+
+            while (true)
+            {
+                if (!buckets[idx].occupied)
+                {
+                    buckets[idx].data = new_value;
+                    buckets[idx].occupied = true;
+                    buckets[idx].probe_dist = dist;
+                    ++elem_count;
+                    return { iterator(buckets + idx, buckets + bucket_count), true };
+                }
+
+                /* Robin Hood: steal from the rich */
+                if (buckets[idx].probe_dist < dist)
+                {
+                    std::swap(new_value, buckets[idx].data);
+                    std::swap(dist, buckets[idx].probe_dist);
+                }
+
+                idx = (idx + 1) & (bucket_count - 1);  /* fast modulo for power of 2 */
+                ++dist;
+            }
+        }
+
+        template<typename... Args>
+        std::pair<iterator, bool> try_emplace(const key_type& key, Args&&... args)
+        {
+            auto it = find(key);
+            if (it != end())
+                return { it, false };
+
+            return emplace(std::piecewise_construct,
+                          std::forward_as_tuple(key),
+                          std::forward_as_tuple(std::forward<Args>(args)...));
+        }
+
+        template<typename... Args>
+        std::pair<iterator, bool> try_emplace(key_type&& key, Args&&... args)
+        {
+            auto it = find(key);
+            if (it != end())
+                return { it, false };
+
+            return emplace(std::piecewise_construct,
+                          std::forward_as_tuple(std::move(key)),
+                          std::forward_as_tuple(std::forward<Args>(args)...));
+        }
+
+        template<typename M>
+        std::pair<iterator, bool> insert_or_assign(const key_type& key, M&& obj)
+        {
+            auto result = try_emplace(key, std::forward<M>(obj));
+            if (!result.second)
+                result.first->second = std::forward<M>(obj);
+            return result;
+        }
+
+        template<typename M>
+        std::pair<iterator, bool> insert_or_assign(key_type&& key, M&& obj)
+        {
+            auto result = try_emplace(std::move(key), std::forward<M>(obj));
+            if (!result.second)
+                result.first->second = std::forward<M>(obj);
+            return result;
+        }
+
+        iterator erase(const_iterator pos)
+        {
+            if (pos == cend())
+                return end();
+
+            size_type idx = pos.current - buckets;
+
+            /* delete the element */
+            delete buckets[idx].data;
+            buckets[idx].data = nullptr;
+            buckets[idx].occupied = false;
+            --elem_count;
+
+            /* fix the probe chain */
+            size_type next_idx = (idx + 1) & (bucket_count - 1);
+            while (buckets[next_idx].occupied && buckets[next_idx].probe_dist > 0)
+            {
+                buckets[idx] = std::move(buckets[next_idx]);
+                buckets[idx].probe_dist--;
+
+                buckets[next_idx].data = nullptr;
+                buckets[next_idx].occupied = false;
+                buckets[next_idx].probe_dist = -1;
+
+                idx = next_idx;
+                next_idx = (next_idx + 1) & (bucket_count - 1);
+            }
+
+            const_iterator next = pos;
+            ++next;
+            return iterator(const_cast<bucket_entry*>(next.current), buckets + bucket_count);
+        }
+
+        iterator erase(const_iterator first, const_iterator last)
+        {
+            auto it = first;
+            while (it != last)
+                it = erase(it);
+            return iterator(const_cast<bucket_entry*>(last.current), buckets + bucket_count);
+        }
+
+        size_type erase(const key_type& key)
+        {
+            auto it = find(key);
+            if (it == end())
+                return 0;
+            erase(it);
+            return 1;
+        }
+
+        void swap(unordered_map& other) noexcept
+        {
+            std::swap(buckets, other.buckets);
+            std::swap(bucket_count, other.bucket_count);
+            std::swap(elem_count, other.elem_count);
+            std::swap(hash_fn, other.hash_fn);
+            std::swap(equal_fn, other.equal_fn);
+            std::swap(allocator, other.allocator);
+            std::swap(max_load_factor_val, other.max_load_factor_val);
+        }
+
+        /* lookup */
+        mapped_type& at(const key_type& key)
+        {
+            auto it = find(key);
+            if (it == end())
+                throw std::out_of_range("unordered_map::at");
+            return it->second;
+        }
+
+        const mapped_type& at(const key_type& key) const
+        {
+            auto it = find(key);
+            if (it == end())
+                throw std::out_of_range("unordered_map::at");
+            return it->second;
+        }
+
+        mapped_type& operator[](const key_type& key)
+        {
+            return try_emplace(key).first->second;
+        }
+
+        mapped_type& operator[](key_type&& key)
+        {
+            return try_emplace(std::move(key)).first->second;
+        }
+
+        size_type count(const key_type& key) const
+        {
+            return contains(key) ? 1 : 0;
+        }
+
+        iterator find(const key_type& key)
+        {
+            size_type idx = bucket(key);
+            int8_t dist = 0;
+
+            while (true)
+            {
+                if (!buckets[idx].occupied)
+                    return end();
+
+                if (buckets[idx].occupied && equal_fn(buckets[idx].data->first, key))
+                    return iterator(buckets + idx, buckets + bucket_count);
+
+                if (buckets[idx].probe_dist < dist)
+                    return end();
+
+                idx = (idx + 1) & (bucket_count - 1);
+                ++dist;
+            }
+        }
+
+        const_iterator find(const key_type& key) const
+        {
+            size_type idx = bucket(key);
+            int8_t dist = 0;
+
+            while (true)
+            {
+                if (!buckets[idx].occupied)
+                    return cend();
+
+                if (buckets[idx].occupied && equal_fn(buckets[idx].data->first, key))
+                    return const_iterator(buckets + idx, buckets + bucket_count);
+
+                if (buckets[idx].probe_dist < dist)
+                    return cend();
+
+                idx = (idx + 1) & (bucket_count - 1);
+                ++dist;
+            }
+        }
+
+        bool contains(const key_type& key) const
+        {
+            return find(key) != cend();
+        }
+
+        std::pair<iterator, iterator> equal_range(const key_type& key)
+        {
+            iterator it = find(key);
+            if (it == end())
+                return { end(), end() };
+
+            iterator next = it;
+            ++next;
+            return { it, next };
+        }
+
+        std::pair<const_iterator, const_iterator> equal_range(const key_type& key) const
+        {
+            const_iterator it = find(key);
+            if (it == cend())
+                return { cend(), cend() };
+
+            const_iterator next = it;
+            ++next;
+            return { it, next };
+        }
+
+        /* bucket interface */
+        local_iterator begin(size_type n)
+        {
+            if (n >= bucket_count)
+                throw std::out_of_range("bucket index out of range");
+            if (buckets[n].occupied)
+                return local_iterator(buckets + n, buckets + n + 1);
+            return local_iterator(buckets + n + 1, buckets + n + 1);
+        }
+
+        const_local_iterator begin(size_type n) const
+        {
+            if (n >= bucket_count)
+                throw std::out_of_range("bucket index out of range");
+            if (buckets[n].occupied)
+                return const_local_iterator(buckets + n, buckets + n + 1);
+            return const_local_iterator(buckets + n + 1, buckets + n + 1);
+        }
+
+        local_iterator end(size_type n)
+        {
+            if (n >= bucket_count)
+                throw std::out_of_range("bucket index out of range");
+            return local_iterator(buckets + n + 1, buckets + n + 1);
+        }
+
+        const_local_iterator end(size_type n) const
+        {
+            if (n >= bucket_count)
+                throw std::out_of_range("bucket index out of range");
+            return const_local_iterator(buckets + n + 1, buckets + n + 1);
+        }
+
+        const_local_iterator cbegin(size_type n) const
+        {
+            return begin(n);
+        }
+
+        const_local_iterator cend(size_type n) const
+        {
+            return end(n);
+        }
+
+        [[nodiscard]] size_type bucket_count_val() const
+        {
+            return bucket_count;
+        }
+
+        [[nodiscard]] static size_type max_bucket_count()
+        {
+            return std::numeric_limits<size_type>::max() / sizeof(bucket_entry);
+        }
+
+        [[nodiscard]] size_type bucket_size(size_type n) const
+        {
+            if (n >= bucket_count)
+                throw std::out_of_range("bucket index out of range");
+            return buckets[n].occupied ? 1 : 0;
+        }
+
+        size_type bucket(const key_type& key) const
+        {
+            return hash_fn(key) & (bucket_count - 1);  /* fast modulo for power of 2 */
+        }
+
+        /* hash policy */
+        [[nodiscard]] float load_factor() const
+        {
+            return static_cast<float>(elem_count) / bucket_count;
+        }
+
+        float max_load_factor() const
+        {
+            return max_load_factor_val;
+        }
+
+        void max_load_factor(float ml)
+        {
+            max_load_factor_val = ml;
+            if (load_factor() > max_load_factor_val)
+                rehash(bucket_count * 2);
+        }
+
+        void rehash(size_type count)
+        {
+            size_type new_size = next_power_of_two(count);
+            if (new_size < elem_count / max_load_factor_val)
+                new_size = next_power_of_two(static_cast<size_type>(std::ceil(elem_count / max_load_factor_val)));
+
+            if (new_size == bucket_count)
+                return;
+
+            bucket_entry* new_buckets = new bucket_entry[new_size]();
+
+            for (size_type i = 0; i < bucket_count; ++i)
+            {
+                if (buckets[i].occupied && buckets[i].data)
+                {
+                    size_type idx = hash_fn(buckets[i].data->first) & (new_size - 1);
+                    int8_t dist = 0;
+
+                    pointer value = buckets[i].data;
+                    buckets[i].data = nullptr;
+
+                    while (true)
+                    {
+                        if (!new_buckets[idx].occupied)
+                        {
+                            new_buckets[idx].data = value;
+                            new_buckets[idx].occupied = true;
+                            new_buckets[idx].probe_dist = dist;
+                            break;
+                        }
+
+                        if (new_buckets[idx].probe_dist < dist)
+                        {
+                            std::swap(value, new_buckets[idx].data);
+                            std::swap(dist, new_buckets[idx].probe_dist);
+                        }
+
+                        idx = (idx + 1) & (new_size - 1);
+                        ++dist;
+                    }
+                }
+            }
+
+            delete[] buckets;
+            buckets = new_buckets;
+            bucket_count = new_size;
+        }
+
+        void reserve(size_type count)
+        {
+            rehash(std::ceil(static_cast<double>(count) / max_load_factor_val));
+        }
+
+        /* observers */
+        hasher hash_function() const
+        {
+            return hash_fn;
+        }
+
+        key_equal key_eq() const
+        {
+            return equal_fn;
+        }
+
+    private:
+        bucket_entry* buckets = nullptr;
+        size_type bucket_count = 0;
+        size_type elem_count = 0;
+        hasher hash_fn;
+        key_equal equal_fn;
+        allocator_type allocator;
+        float max_load_factor_val;
+
+        static size_type next_power_of_two(size_type n)
+        {
+            if (n <= 1) return 1;
+            n--;
+            n |= n >> 1;
+            n |= n >> 2;
+            n |= n >> 4;
+            n |= n >> 8;
+            n |= n >> 16;
+            if constexpr (sizeof(size_type) > 4)
+                n |= n >> 32;
+            return n + 1;
+        }
+    };
+
+    /* non-member functions */
+    template<typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
+    bool operator==(const unordered_map<Key, T, Hash, KeyEqual, Alloc>& lhs,
+                    const unordered_map<Key, T, Hash, KeyEqual, Alloc>& rhs)
+    {
+        if (lhs.size() != rhs.size())
+            return false;
+
+        for (const auto& [key, value] : lhs)
+        {
+            auto it = rhs.find(key);
+            if (it == rhs.end() || it->second != value)
+                return false;
+        }
+        return true;
+    }
+
+    template<typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
+    bool operator!=(const unordered_map<Key, T, Hash, KeyEqual, Alloc>& lhs,
+                    const unordered_map<Key, T, Hash, KeyEqual, Alloc>& rhs)
+    {
+        return !(lhs == rhs);
+    }
+
+    template<typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
+    void swap(unordered_map<Key, T, Hash, KeyEqual, Alloc>& lhs,
+              unordered_map<Key, T, Hash, KeyEqual, Alloc>& rhs) noexcept
+    {
+        lhs.swap(rhs);
+    }
+}

@@ -43,6 +43,7 @@ if (ACHERON_BUILD_TEST)
             tests/memory/allocator.cpp
             tests/list.cpp
             tests/string.cpp
+            tests/unordered_map.cpp
             tests/vector.cpp
     )
 

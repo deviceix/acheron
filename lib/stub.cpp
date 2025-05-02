@@ -7,4 +7,5 @@
 #include <acheron/list>
 #include <acheron/memory>
 #include <acheron/string>
+#include <acheron/unordered_map>
 #include <acheron/vector>
