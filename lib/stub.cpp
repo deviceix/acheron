@@ -5,6 +5,7 @@
 #include <acheron/cast>
 #include <acheron/cstring>
 #include <acheron/deque>
+#include <acheron/dynamic_bitset>
 #include <acheron/list>
 #include <acheron/memory>
 #include <acheron/queue>

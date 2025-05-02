@@ -39,7 +39,7 @@ namespace ach
         vector() : vector(Allocator()) {}
 
         explicit vector(const Allocator &alloc)
-            : allocator(alloc), data(nullptr), sz(0), cap(0) {}
+            : data(nullptr), sz(0), cap(0), allocator(alloc) {}
 
         explicit vector(size_type count, const Allocator &alloc = Allocator())
             : vector(alloc)

@@ -27,7 +27,7 @@ cmake --build build
 
 ### Available Build Options
 
-| Option                      | Description      | Default |
+| Option                     | Description      | Default |
 |----------------------------|------------------|---------|
 | `ACHERON_BUILD_BENCHMARKS` | Build benchmarks | `OFF`   |
 | `ACHERON_BUILD_EXAMPLES`   | Build examples   | `OFF`   |
@@ -42,11 +42,10 @@ cmake --build build
 
 int main()
 {
-    /* vector with efficient memory management */
-    ach::vector<int> numbers = {1, 2, 3, 4, 5};
+    ach::vector<int> numbers = { 1, 2, 3, 4, 5 };
     numbers.push_back(6);
     
-    /* string with optimized operations */
+    /* optimized string */
     ach::string text = "Hello, World!";
     text.append(" From Acheron");
     
@@ -68,7 +67,7 @@ The project is actively being developed. The API aims for standard library compa
 | Core Containers       | Complete | vector, list, string                   |
 | Atomic Operations     | Complete | Memory ordering, thread safety         |
 | Hash Containers       | Complete | unordered_map with Robin Hood hashing  |
-| Dynamic Containers    | Planned  | deque, dynamic_bitset                  |
+| Dynamic Containers    | Complete | deque, dynamic_bitset                  |
 | Ordered Containers    | Planned  | map, set                               |
 | Stack/Queue Adapters  | Complete | stack, queue                           |
 | Algorithms            | Planned  | Sorting, searching, transformations    |
@@ -76,7 +75,7 @@ The project is actively being developed. The API aims for standard library compa
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE.txt) file for details.
 
 ## Author
 

@@ -20,8 +20,7 @@ namespace ach
         class T,
         class Hash = std::hash<Key>,
         class KeyEqual = std::equal_to<Key>,
-        class Allocator = allocator<std::pair<const Key, T>>
-    >
+        class Allocator = allocator<std::pair<const Key, T> > >
     class unordered_map
     {
     public:
@@ -33,60 +32,48 @@ namespace ach
         using hasher = Hash;
         using key_equal = KeyEqual;
         using allocator_type = Allocator;
-        using reference = value_type&;
-        using const_reference = const value_type&;
-        using pointer = value_type*;
-        using const_pointer = const value_type*;
+        using reference = value_type &;
+        using const_reference = const value_type &;
+        using pointer = value_type *;
+        using const_pointer = const value_type *;
 
     private:
+        using alloc_traits = std::allocator_traits<allocator_type>;
+
         struct bucket_entry
         {
             pointer data = nullptr;
             bool occupied = false;
-            int8_t probe_dist = -1;  /* Robin Hood probe distance */
+            int16_t probe_dist = -1; /* Robin Hood probe distance - increased for larger maps */
 
             bucket_entry() = default;
+            ~bucket_entry() = default;
 
-            ~bucket_entry()
-            {
-                delete data;
-            }
+            bucket_entry(const bucket_entry &other) : occupied(other.occupied), probe_dist(other.probe_dist) {}
 
-            bucket_entry(const bucket_entry& other)
-                : occupied(other.occupied), probe_dist(other.probe_dist)
-            {
-                if (other.data)
-                    data = new value_type(*other.data);
-            }
-
-            bucket_entry(bucket_entry&& other) noexcept
-                : data(other.data), occupied(other.occupied), probe_dist(other.probe_dist)
+            bucket_entry(bucket_entry &&other) noexcept : data(other.data), occupied(other.occupied),
+                                                          probe_dist(other.probe_dist)
             {
                 other.data = nullptr;
                 other.occupied = false;
                 other.probe_dist = -1;
             }
 
-            bucket_entry& operator=(const bucket_entry& other)
+            bucket_entry &operator=(const bucket_entry &other)
             {
                 if (this != &other)
                 {
-                    delete data;
+                    data = other.data;
                     occupied = other.occupied;
                     probe_dist = other.probe_dist;
-                    if (other.data)
-                        data = new value_type(*other.data);
-                    else
-                        data = nullptr;
                 }
                 return *this;
             }
 
-            bucket_entry& operator=(bucket_entry&& other) noexcept
+            bucket_entry &operator=(bucket_entry &&other) noexcept
             {
                 if (this != &other)
                 {
-                    delete data;
                     data = other.data;
                     occupied = other.occupied;
                     probe_dist = other.probe_dist;
@@ -98,6 +85,9 @@ namespace ach
             }
         };
 
+        using bucket_allocator = typename alloc_traits::template rebind_alloc<bucket_entry>;
+        using bucket_alloc_traits = std::allocator_traits<bucket_allocator>;
+
     public:
         /* iterators - simplified like vector */
         class iterator
@@ -105,21 +95,28 @@ namespace ach
         public:
             using difference_type = ptrdiff_t;
             using value_type = unordered_map::value_type;
-            using pointer = value_type*;
-            using reference = value_type&;
+            using pointer = value_type *;
+            using reference = value_type &;
             using iterator_category = std::forward_iterator_tag;
 
-            iterator(bucket_entry* ptr, bucket_entry* end) : current(ptr), end(end)
+            iterator(bucket_entry *ptr, bucket_entry *end) : current(ptr), end(end)
             {
                 /* find first valid entry */
                 while (current != end && (!current->occupied || !current->data))
                     ++current;
             }
 
-            reference operator*() { return *(current->data); }
-            pointer operator->() { return current->data; }
+            reference operator*()
+            {
+                return *(current->data);
+            }
 
-            iterator& operator++()
+            pointer operator->()
+            {
+                return current->data;
+            }
+
+            iterator &operator++()
             {
                 ++current;
                 while (current != end && (!current->occupied || !current->data))
@@ -134,12 +131,19 @@ namespace ach
                 return tmp;
             }
 
-            bool operator==(const iterator& other) const { return current == other.current; }
-            bool operator!=(const iterator& other) const { return current != other.current; }
+            bool operator==(const iterator &other) const
+            {
+                return current == other.current;
+            }
+
+            bool operator!=(const iterator &other) const
+            {
+                return current != other.current;
+            }
 
         private:
-            bucket_entry* current;
-            bucket_entry* end;
+            bucket_entry *current;
+            bucket_entry *end;
             friend class unordered_map;
         };
 
@@ -148,24 +152,30 @@ namespace ach
         public:
             using difference_type = ptrdiff_t;
             using value_type = unordered_map::value_type;
-            using pointer = const value_type*;
-            using reference = const value_type&;
+            using pointer = const value_type *;
+            using reference = const value_type &;
             using iterator_category = std::forward_iterator_tag;
 
-            const_iterator(const bucket_entry* ptr, const bucket_entry* end)
-                : current(ptr), end(end)
+            const_iterator(const bucket_entry *ptr, const bucket_entry *end) : current(ptr), end(end)
             {
                 /* find first valid entry */
                 while (current != end && (!current->occupied || !current->data))
                     ++current;
             }
 
-            const_iterator(const iterator& it) : current(it.current), end(it.end) {}
+            const_iterator(const iterator &it) : current(it.current), end(it.end) {}
 
-            reference operator*() const { return *(current->data); }
-            pointer operator->() const { return current->data; }
+            reference operator*() const
+            {
+                return *(current->data);
+            }
 
-            const_iterator& operator++()
+            pointer operator->() const
+            {
+                return current->data;
+            }
+
+            const_iterator &operator++()
             {
                 ++current;
                 while (current != end && (!current->occupied || !current->data))
@@ -180,12 +190,19 @@ namespace ach
                 return tmp;
             }
 
-            bool operator==(const const_iterator& other) const { return current == other.current; }
-            bool operator!=(const const_iterator& other) const { return current != other.current; }
+            bool operator==(const const_iterator &other) const
+            {
+                return current == other.current;
+            }
+
+            bool operator!=(const const_iterator &other) const
+            {
+                return current != other.current;
+            }
 
         private:
-            const bucket_entry* current;
-            const bucket_entry* end;
+            const bucket_entry *current;
+            const bucket_entry *end;
             friend class unordered_map;
         };
 
@@ -196,55 +213,52 @@ namespace ach
         unordered_map() : unordered_map(16) {}
 
         explicit unordered_map(size_type bucket_count,
-                              const Hash& hash = Hash(),
-                              const KeyEqual& equal = KeyEqual(),
-                              const Allocator& alloc = Allocator())
-            : bucket_count(next_power_of_two(bucket_count)),
-              elem_count(0), hash_fn(hash), equal_fn(equal),
-              allocator(alloc), max_load_factor_val(0.75f)
+                               const Hash &hash = Hash(),
+                               const KeyEqual &equal = KeyEqual(),
+                               const Allocator &alloc = Allocator()) : bk_count(next_power_of_two(bucket_count)),
+                                                                       hash_fn(hash), equal_fn(equal),
+                                                                       allocator(alloc), max_load_factor_val(0.75f)
         {
-            buckets = new bucket_entry[this->bucket_count]();
+            buckets = allocate_buckets(this->bk_count);
         }
 
         template<typename InputIt>
         unordered_map(InputIt first, InputIt last,
                       size_type bucket_count = 16,
-                      const Hash& hash = Hash(),
-                      const KeyEqual& equal = KeyEqual(),
-                      const Allocator& alloc = Allocator())
-            : unordered_map(bucket_count, hash, equal, alloc)
+                      const Hash &hash = Hash(),
+                      const KeyEqual &equal = KeyEqual(),
+                      const Allocator &alloc = Allocator()) : unordered_map(bucket_count, hash, equal, alloc)
         {
             insert(first, last);
         }
 
-        unordered_map(const unordered_map& other)
-            : unordered_map(other.bucket_count, other.hash_fn, other.equal_fn, other.allocator)
+        unordered_map(const unordered_map &other) : unordered_map(other.bk_count, other.hash_fn, other.equal_fn,
+                                                                  other.allocator)
         {
             max_load_factor_val = other.max_load_factor_val;
-            for (size_type i = 0; i < other.bucket_count; ++i)
+            for (size_type i = 0; i < other.bk_count; ++i)
             {
                 if (other.buckets[i].occupied && other.buckets[i].data)
                     insert(*(other.buckets[i].data));
             }
         }
 
-        unordered_map(unordered_map&& other) noexcept
-            : buckets(other.buckets), bucket_count(other.bucket_count),
-              elem_count(other.elem_count), hash_fn(std::move(other.hash_fn)),
-              equal_fn(std::move(other.equal_fn)), allocator(std::move(other.allocator)),
-              max_load_factor_val(other.max_load_factor_val)
+        unordered_map(unordered_map &&other) noexcept : buckets(other.buckets), bk_count(other.bk_count),
+                                                        elem_count(other.elem_count), hash_fn(std::move(other.hash_fn)),
+                                                        equal_fn(std::move(other.equal_fn)),
+                                                        allocator(std::move(other.allocator)),
+                                                        max_load_factor_val(other.max_load_factor_val)
         {
             other.buckets = nullptr;
-            other.bucket_count = 0;
+            other.bk_count = 0;
             other.elem_count = 0;
         }
 
         unordered_map(std::initializer_list<value_type> init,
                       size_type bucket_count = 16,
-                      const Hash& hash = Hash(),
-                      const KeyEqual& equal = KeyEqual(),
-                      const Allocator& alloc = Allocator())
-            : unordered_map(bucket_count, hash, equal, alloc)
+                      const Hash &hash = Hash(),
+                      const KeyEqual &equal = KeyEqual(),
+                      const Allocator &alloc = Allocator()) : unordered_map(bucket_count, hash, equal, alloc)
         {
             insert(init.begin(), init.end());
         }
@@ -252,25 +266,25 @@ namespace ach
         ~unordered_map()
         {
             clear();
-            delete[] buckets;
+            deallocate_buckets(buckets, bk_count);
         }
 
         /* assignment */
-        unordered_map& operator=(const unordered_map& other)
+        unordered_map &operator=(const unordered_map &other)
         {
             if (this != &other)
             {
                 clear();
-                delete[] buckets;
+                deallocate_buckets(buckets, bk_count);
 
-                bucket_count = other.bucket_count;
+                bk_count = other.bk_count;
                 hash_fn = other.hash_fn;
                 equal_fn = other.equal_fn;
                 allocator = other.allocator;
                 max_load_factor_val = other.max_load_factor_val;
 
-                buckets = new bucket_entry[bucket_count]();
-                for (size_type i = 0; i < other.bucket_count; ++i)
+                buckets = allocate_buckets(bk_count);
+                for (size_type i = 0; i < other.bk_count; ++i)
                 {
                     if (other.buckets[i].occupied && other.buckets[i].data)
                         insert(*(other.buckets[i].data));
@@ -279,15 +293,15 @@ namespace ach
             return *this;
         }
 
-        unordered_map& operator=(unordered_map&& other) noexcept
+        unordered_map &operator=(unordered_map &&other) noexcept
         {
             if (this != &other)
             {
                 clear();
-                delete[] buckets;
+                deallocate_buckets(buckets, bk_count);
 
                 buckets = other.buckets;
-                bucket_count = other.bucket_count;
+                bk_count = other.bk_count;
                 elem_count = other.elem_count;
                 hash_fn = std::move(other.hash_fn);
                 equal_fn = std::move(other.equal_fn);
@@ -295,13 +309,13 @@ namespace ach
                 max_load_factor_val = other.max_load_factor_val;
 
                 other.buckets = nullptr;
-                other.bucket_count = 0;
+                other.bk_count = 0;
                 other.elem_count = 0;
             }
             return *this;
         }
 
-        unordered_map& operator=(std::initializer_list<value_type> ilist)
+        unordered_map &operator=(std::initializer_list<value_type> ilist)
         {
             clear();
             insert(ilist.begin(), ilist.end());
@@ -317,22 +331,22 @@ namespace ach
         /* iterators */
         iterator begin() noexcept
         {
-            return iterator(buckets, buckets + bucket_count);
+            return iterator(buckets, buckets + bk_count);
         }
 
         const_iterator begin() const noexcept
         {
-            return const_iterator(buckets, buckets + bucket_count);
+            return const_iterator(buckets, buckets + bk_count);
         }
 
         iterator end() noexcept
         {
-            return iterator(buckets + bucket_count, buckets + bucket_count);
+            return iterator(buckets + bk_count, buckets + bk_count);
         }
 
         const_iterator end() const noexcept
         {
-            return const_iterator(buckets + bucket_count, buckets + bucket_count);
+            return const_iterator(buckets + bk_count, buckets + bk_count);
         }
 
         const_iterator cbegin() const noexcept
@@ -364,11 +378,11 @@ namespace ach
         /* modifiers */
         void clear() noexcept
         {
-            for (size_type i = 0; i < bucket_count; ++i)
+            for (size_type i = 0; i < bk_count; ++i)
             {
                 if (buckets[i].occupied)
                 {
-                    delete buckets[i].data;
+                    destroy_value(buckets[i].data);
                     buckets[i].data = nullptr;
                     buckets[i].occupied = false;
                     buckets[i].probe_dist = -1;
@@ -377,12 +391,12 @@ namespace ach
             elem_count = 0;
         }
 
-        std::pair<iterator, bool> insert(const value_type& value)
+        std::pair<iterator, bool> insert(const value_type &value)
         {
             return emplace(value);
         }
 
-        std::pair<iterator, bool> insert(value_type&& value)
+        std::pair<iterator, bool> insert(value_type &&value)
         {
             return emplace(std::move(value));
         }
@@ -400,24 +414,23 @@ namespace ach
         }
 
         template<typename... Args>
-        std::pair<iterator, bool> emplace(Args&&... args)
+        std::pair<iterator, bool> emplace(Args &&... args)
         {
             if (load_factor() > max_load_factor())
-                rehash(bucket_count * 2);
+                rehash(bk_count * 2);
 
-            pointer new_value = new value_type(std::forward<Args>(args)...);
-            const auto& key = new_value->first;
+            pointer new_value = allocate_and_construct(std::forward<Args>(args)...);
+            const auto &key = new_value->first;
 
-            /* check if key already exists */
             auto existing = find(key);
             if (existing != end())
             {
-                delete new_value;
+                destroy_and_deallocate(new_value);
                 return { existing, false };
             }
 
             size_type idx = bucket(key);
-            int8_t dist = 0;
+            int16_t dist = 0;
 
             while (true)
             {
@@ -427,7 +440,7 @@ namespace ach
                     buckets[idx].occupied = true;
                     buckets[idx].probe_dist = dist;
                     ++elem_count;
-                    return { iterator(buckets + idx, buckets + bucket_count), true };
+                    return { iterator(buckets + idx, buckets + bk_count), true };
                 }
 
                 /* Robin Hood: steal from the rich */
@@ -437,37 +450,37 @@ namespace ach
                     std::swap(dist, buckets[idx].probe_dist);
                 }
 
-                idx = (idx + 1) & (bucket_count - 1);  /* fast modulo for power of 2 */
+                idx = (idx + 1) & (bk_count - 1);
                 ++dist;
             }
         }
 
         template<typename... Args>
-        std::pair<iterator, bool> try_emplace(const key_type& key, Args&&... args)
+        std::pair<iterator, bool> try_emplace(const key_type &key, Args &&... args)
         {
             auto it = find(key);
             if (it != end())
                 return { it, false };
 
             return emplace(std::piecewise_construct,
-                          std::forward_as_tuple(key),
-                          std::forward_as_tuple(std::forward<Args>(args)...));
+                           std::forward_as_tuple(key),
+                           std::forward_as_tuple(std::forward<Args>(args)...));
         }
 
         template<typename... Args>
-        std::pair<iterator, bool> try_emplace(key_type&& key, Args&&... args)
+        std::pair<iterator, bool> try_emplace(key_type &&key, Args &&... args)
         {
             auto it = find(key);
             if (it != end())
                 return { it, false };
 
             return emplace(std::piecewise_construct,
-                          std::forward_as_tuple(std::move(key)),
-                          std::forward_as_tuple(std::forward<Args>(args)...));
+                           std::forward_as_tuple(std::move(key)),
+                           std::forward_as_tuple(std::forward<Args>(args)...));
         }
 
         template<typename M>
-        std::pair<iterator, bool> insert_or_assign(const key_type& key, M&& obj)
+        std::pair<iterator, bool> insert_or_assign(const key_type &key, M &&obj)
         {
             auto result = try_emplace(key, std::forward<M>(obj));
             if (!result.second)
@@ -476,7 +489,7 @@ namespace ach
         }
 
         template<typename M>
-        std::pair<iterator, bool> insert_or_assign(key_type&& key, M&& obj)
+        std::pair<iterator, bool> insert_or_assign(key_type &&key, M &&obj)
         {
             auto result = try_emplace(std::move(key), std::forward<M>(obj));
             if (!result.second)
@@ -491,14 +504,12 @@ namespace ach
 
             size_type idx = pos.current - buckets;
 
-            /* delete the element */
-            delete buckets[idx].data;
+            destroy_value(buckets[idx].data);
             buckets[idx].data = nullptr;
             buckets[idx].occupied = false;
             --elem_count;
 
-            /* fix the probe chain */
-            size_type next_idx = (idx + 1) & (bucket_count - 1);
+            size_type next_idx = (idx + 1) & (bk_count - 1);
             while (buckets[next_idx].occupied && buckets[next_idx].probe_dist > 0)
             {
                 buckets[idx] = std::move(buckets[next_idx]);
@@ -509,12 +520,12 @@ namespace ach
                 buckets[next_idx].probe_dist = -1;
 
                 idx = next_idx;
-                next_idx = (next_idx + 1) & (bucket_count - 1);
+                next_idx = (next_idx + 1) & (bk_count - 1);
             }
 
             const_iterator next = pos;
             ++next;
-            return iterator(const_cast<bucket_entry*>(next.current), buckets + bucket_count);
+            return iterator(const_cast<bucket_entry *>(next.current), buckets + bk_count);
         }
 
         iterator erase(const_iterator first, const_iterator last)
@@ -522,10 +533,10 @@ namespace ach
             auto it = first;
             while (it != last)
                 it = erase(it);
-            return iterator(const_cast<bucket_entry*>(last.current), buckets + bucket_count);
+            return iterator(const_cast<bucket_entry *>(last.current), buckets + bk_count);
         }
 
-        size_type erase(const key_type& key)
+        size_type erase(const key_type &key)
         {
             auto it = find(key);
             if (it == end())
@@ -534,10 +545,10 @@ namespace ach
             return 1;
         }
 
-        void swap(unordered_map& other) noexcept
+        void swap(unordered_map &other) noexcept
         {
             std::swap(buckets, other.buckets);
-            std::swap(bucket_count, other.bucket_count);
+            std::swap(bk_count, other.bk_count);
             std::swap(elem_count, other.elem_count);
             std::swap(hash_fn, other.hash_fn);
             std::swap(equal_fn, other.equal_fn);
@@ -546,7 +557,7 @@ namespace ach
         }
 
         /* lookup */
-        mapped_type& at(const key_type& key)
+        mapped_type &at(const key_type &key)
         {
             auto it = find(key);
             if (it == end())
@@ -554,7 +565,7 @@ namespace ach
             return it->second;
         }
 
-        const mapped_type& at(const key_type& key) const
+        const mapped_type &at(const key_type &key) const
         {
             auto it = find(key);
             if (it == end())
@@ -562,25 +573,25 @@ namespace ach
             return it->second;
         }
 
-        mapped_type& operator[](const key_type& key)
+        mapped_type &operator[](const key_type &key)
         {
             return try_emplace(key).first->second;
         }
 
-        mapped_type& operator[](key_type&& key)
+        mapped_type &operator[](key_type &&key)
         {
             return try_emplace(std::move(key)).first->second;
         }
 
-        size_type count(const key_type& key) const
+        size_type count(const key_type &key) const
         {
             return contains(key) ? 1 : 0;
         }
 
-        iterator find(const key_type& key)
+        iterator find(const key_type &key)
         {
             size_type idx = bucket(key);
-            int8_t dist = 0;
+            int16_t dist = 0;
 
             while (true)
             {
@@ -588,20 +599,20 @@ namespace ach
                     return end();
 
                 if (buckets[idx].occupied && equal_fn(buckets[idx].data->first, key))
-                    return iterator(buckets + idx, buckets + bucket_count);
+                    return iterator(buckets + idx, buckets + bk_count);
 
                 if (buckets[idx].probe_dist < dist)
                     return end();
 
-                idx = (idx + 1) & (bucket_count - 1);
+                idx = (idx + 1) & (bk_count - 1);
                 ++dist;
             }
         }
 
-        const_iterator find(const key_type& key) const
+        const_iterator find(const key_type &key) const
         {
             size_type idx = bucket(key);
-            int8_t dist = 0;
+            int16_t dist = 0;
 
             while (true)
             {
@@ -609,22 +620,22 @@ namespace ach
                     return cend();
 
                 if (buckets[idx].occupied && equal_fn(buckets[idx].data->first, key))
-                    return const_iterator(buckets + idx, buckets + bucket_count);
+                    return const_iterator(buckets + idx, buckets + bk_count);
 
                 if (buckets[idx].probe_dist < dist)
                     return cend();
 
-                idx = (idx + 1) & (bucket_count - 1);
+                idx = (idx + 1) & (bk_count - 1);
                 ++dist;
             }
         }
 
-        bool contains(const key_type& key) const
+        bool contains(const key_type &key) const
         {
             return find(key) != cend();
         }
 
-        std::pair<iterator, iterator> equal_range(const key_type& key)
+        std::pair<iterator, iterator> equal_range(const key_type &key)
         {
             iterator it = find(key);
             if (it == end())
@@ -635,7 +646,7 @@ namespace ach
             return { it, next };
         }
 
-        std::pair<const_iterator, const_iterator> equal_range(const key_type& key) const
+        std::pair<const_iterator, const_iterator> equal_range(const key_type &key) const
         {
             const_iterator it = find(key);
             if (it == cend())
@@ -649,7 +660,7 @@ namespace ach
         /* bucket interface */
         local_iterator begin(size_type n)
         {
-            if (n >= bucket_count)
+            if (n >= bk_count)
                 throw std::out_of_range("bucket index out of range");
             if (buckets[n].occupied)
                 return local_iterator(buckets + n, buckets + n + 1);
@@ -658,7 +669,7 @@ namespace ach
 
         const_local_iterator begin(size_type n) const
         {
-            if (n >= bucket_count)
+            if (n >= bk_count)
                 throw std::out_of_range("bucket index out of range");
             if (buckets[n].occupied)
                 return const_local_iterator(buckets + n, buckets + n + 1);
@@ -667,14 +678,14 @@ namespace ach
 
         local_iterator end(size_type n)
         {
-            if (n >= bucket_count)
+            if (n >= bk_count)
                 throw std::out_of_range("bucket index out of range");
             return local_iterator(buckets + n + 1, buckets + n + 1);
         }
 
         const_local_iterator end(size_type n) const
         {
-            if (n >= bucket_count)
+            if (n >= bk_count)
                 throw std::out_of_range("bucket index out of range");
             return const_local_iterator(buckets + n + 1, buckets + n + 1);
         }
@@ -689,9 +700,9 @@ namespace ach
             return end(n);
         }
 
-        [[nodiscard]] size_type bucket_count_val() const
+        [[nodiscard]] size_type bucket_count() const
         {
-            return bucket_count;
+            return bk_count;
         }
 
         [[nodiscard]] static size_type max_bucket_count()
@@ -701,22 +712,30 @@ namespace ach
 
         [[nodiscard]] size_type bucket_size(size_type n) const
         {
-            if (n >= bucket_count)
+            if (n >= bk_count)
                 throw std::out_of_range("bucket index out of range");
-            return buckets[n].occupied ? 1 : 0;
+
+            size_type count = 0;
+            for (size_type i = 0; i < bk_count; ++i)
+            {
+                if (buckets[i].occupied && bucket(buckets[i].data->first) == n)
+                    ++count;
+            }
+            return count;
         }
 
-        size_type bucket(const key_type& key) const
+        size_type bucket(const key_type &key) const
         {
-            return hash_fn(key) & (bucket_count - 1);  /* fast modulo for power of 2 */
+            return hash_fn(key) & (bk_count - 1);
         }
 
         /* hash policy */
         [[nodiscard]] float load_factor() const
         {
-            return static_cast<float>(elem_count) / bucket_count;
+            return static_cast<float>(elem_count) / bk_count;
         }
 
+        [[nodiscard]]
         float max_load_factor() const
         {
             return max_load_factor_val;
@@ -726,26 +745,25 @@ namespace ach
         {
             max_load_factor_val = ml;
             if (load_factor() > max_load_factor_val)
-                rehash(bucket_count * 2);
+                rehash(bk_count * 2);
         }
 
         void rehash(size_type count)
         {
             size_type new_size = next_power_of_two(count);
             if (new_size < elem_count / max_load_factor_val)
-                new_size = next_power_of_two(static_cast<size_type>(std::ceil(elem_count / max_load_factor_val)));
+                new_size = next_power_of_two(std::ceil(elem_count / max_load_factor_val));
 
-            if (new_size == bucket_count)
+            if (new_size == bk_count)
                 return;
 
-            bucket_entry* new_buckets = new bucket_entry[new_size]();
-
-            for (size_type i = 0; i < bucket_count; ++i)
+            auto *new_buckets = allocate_buckets(new_size);
+            for (size_type i = 0; i < bk_count; ++i)
             {
                 if (buckets[i].occupied && buckets[i].data)
                 {
                     size_type idx = hash_fn(buckets[i].data->first) & (new_size - 1);
-                    int8_t dist = 0;
+                    int16_t dist = 0;
 
                     pointer value = buckets[i].data;
                     buckets[i].data = nullptr;
@@ -772,12 +790,12 @@ namespace ach
                 }
             }
 
-            delete[] buckets;
+            deallocate_buckets(buckets, bk_count);
             buckets = new_buckets;
-            bucket_count = new_size;
+            bk_count = new_size;
         }
 
-        void reserve(size_type count)
+        void reserve(const size_type count)
         {
             rehash(std::ceil(static_cast<double>(count) / max_load_factor_val));
         }
@@ -794,8 +812,8 @@ namespace ach
         }
 
     private:
-        bucket_entry* buckets = nullptr;
-        size_type bucket_count = 0;
+        bucket_entry *buckets = nullptr;
+        size_type bk_count = 0;
         size_type elem_count = 0;
         hasher hash_fn;
         key_equal equal_fn;
@@ -804,7 +822,8 @@ namespace ach
 
         static size_type next_power_of_two(size_type n)
         {
-            if (n <= 1) return 1;
+            if (n <= 1)
+                return 1;
             n--;
             n |= n >> 1;
             n |= n >> 2;
@@ -815,17 +834,77 @@ namespace ach
                 n |= n >> 32;
             return n + 1;
         }
+
+        pointer allocate(size_type n)
+        {
+            return alloc_traits::allocate(allocator, n);
+        }
+
+        void deallocate(pointer p, size_type n)
+        {
+            if (p)
+                alloc_traits::deallocate(allocator, p, n);
+        }
+
+        template<typename... Args>
+        pointer allocate_and_construct(Args &&... args)
+        {
+            pointer p = allocate(1);
+            try
+            {
+                alloc_traits::construct(allocator, p, std::forward<Args>(args)...);
+            }
+            catch (...)
+            {
+                deallocate(p, 1);
+                throw;
+            }
+            return p;
+        }
+
+        void destroy_and_deallocate(pointer p)
+        {
+            alloc_traits::destroy(allocator, p);
+            deallocate(p, 1);
+        }
+
+        void destroy_value(pointer p)
+        {
+            if (p)
+                destroy_and_deallocate(p);
+        }
+
+        bucket_entry* allocate_buckets(size_type count)
+        {
+            bucket_allocator b_alloc(allocator);
+            bucket_entry* ptr = bucket_alloc_traits::allocate(b_alloc, count);
+
+            for (size_type i = 0; i < count; ++i)
+                bucket_alloc_traits::construct(b_alloc, ptr + i);
+
+            return ptr;
+        }
+
+        void deallocate_buckets(bucket_entry* ptr, size_type count)
+        {
+            if (ptr) {
+                bucket_allocator b_alloc(allocator);
+                for (size_type i = 0; i < count; ++i)
+                    bucket_alloc_traits::destroy(b_alloc, ptr + i);
+                bucket_alloc_traits::deallocate(b_alloc, ptr, count);
+            }
+        }
     };
 
     /* non-member functions */
     template<typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
-    bool operator==(const unordered_map<Key, T, Hash, KeyEqual, Alloc>& lhs,
-                    const unordered_map<Key, T, Hash, KeyEqual, Alloc>& rhs)
+    bool operator==(const unordered_map<Key, T, Hash, KeyEqual, Alloc> &lhs,
+                    const unordered_map<Key, T, Hash, KeyEqual, Alloc> &rhs)
     {
         if (lhs.size() != rhs.size())
             return false;
 
-        for (const auto& [key, value] : lhs)
+        for (const auto &[key, value]: lhs)
         {
             auto it = rhs.find(key);
             if (it == rhs.end() || it->second != value)
@@ -835,15 +914,15 @@ namespace ach
     }
 
     template<typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
-    bool operator!=(const unordered_map<Key, T, Hash, KeyEqual, Alloc>& lhs,
-                    const unordered_map<Key, T, Hash, KeyEqual, Alloc>& rhs)
+    bool operator!=(const unordered_map<Key, T, Hash, KeyEqual, Alloc> &lhs,
+                    const unordered_map<Key, T, Hash, KeyEqual, Alloc> &rhs)
     {
         return !(lhs == rhs);
     }
 
     template<typename Key, typename T, typename Hash, typename KeyEqual, typename Alloc>
-    void swap(unordered_map<Key, T, Hash, KeyEqual, Alloc>& lhs,
-              unordered_map<Key, T, Hash, KeyEqual, Alloc>& rhs) noexcept
+    void swap(unordered_map<Key, T, Hash, KeyEqual, Alloc> &lhs,
+              unordered_map<Key, T, Hash, KeyEqual, Alloc> &rhs) noexcept
     {
         lhs.swap(rhs);
     }

@@ -42,7 +42,9 @@ if (ACHERON_BUILD_TEST)
             tests/cstring/strops.cpp
             tests/memory/allocator.cpp
             tests/deque.cpp
+            tests/dynamic_bitset.cpp
             tests/list.cpp
+            tests/map.cpp
             tests/queue.cpp
             tests/stack.cpp
             tests/string.cpp

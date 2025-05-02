@@ -16,7 +16,7 @@ TEST_F(UnorderedMapTest, DefaultConstruction)
 {
 	EXPECT_TRUE(int_map.empty());
 	EXPECT_EQ(int_map.size(), 0);
-	EXPECT_GT(int_map.bucket_count_val(), 0);
+	EXPECT_GT(int_map.bucket_count(), 0);
 }
 
 TEST_F(UnorderedMapTest, InsertAndFind)
@@ -173,10 +173,10 @@ TEST_F(UnorderedMapTest, BucketInterface)
 {
 	int_map = {{1, "one"}, {2, "two"}};
 
-	EXPECT_GT(int_map.bucket_count_val(), 0);
+	EXPECT_GT(int_map.bucket_count(), 0);
 
 	size_t bucket_1 = int_map.bucket(1);
-	EXPECT_LT(bucket_1, int_map.bucket_count_val());
+	EXPECT_LT(bucket_1, int_map.bucket_count());
 
 	size_t bucket_size = int_map.bucket_size(bucket_1);
 	EXPECT_GE(bucket_size, 0);
@@ -193,13 +193,13 @@ TEST_F(UnorderedMapTest, LoadFactor)
 
 TEST_F(UnorderedMapTest, RehashAndReserve)
 {
-	size_t initial_buckets = int_map.bucket_count_val();
+	size_t initial_buckets = int_map.bucket_count();
 
 	int_map.rehash(100);
-	EXPECT_GE(int_map.bucket_count_val(), 100);
+	EXPECT_GE(int_map.bucket_count(), 100);
 
 	int_map.reserve(50);
-	EXPECT_GE(int_map.bucket_count_val(), 50 / int_map.max_load_factor());
+	EXPECT_GE(int_map.bucket_count(), 50 / int_map.max_load_factor());
 }
 
 TEST_F(UnorderedMapTest, CopyConstruction)

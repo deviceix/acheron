@@ -1,0 +1,689 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+// ReSharper disable CppNonExplicitConvertingConstructor
+#pragma once
+
+#include <algorithm>
+#include <climits>
+#include <functional>
+#include <iterator>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+    template<typename Block = unsigned long, typename Allocator = allocator<Block> >
+    class dynamic_bitset
+    {
+    public:
+        using block_type = Block;
+        using allocator_type = Allocator;
+        using size_type = size_t;
+
+        static_assert(std::is_unsigned_v<Block>, "Block type must be unsigned");
+        static constexpr size_type bits_per_block = sizeof(Block) * CHAR_BIT;
+        static constexpr Block zero_block = Block(0);
+        static constexpr Block one_block = Block(~Block(0));
+
+        /* reference proxy class */
+        class reference
+        {
+        public:
+            reference(Block &block, size_type pos) : block(block), mask(Block(1) << pos) {}
+
+            reference &operator=(bool value) noexcept
+            {
+                if (value)
+                    block |= mask;
+                else
+                    block &= ~mask;
+                return *this;
+            }
+
+            reference &operator=(const reference &other) noexcept
+            {
+                /* this calls the `operator=(bool)` overload */
+                return *this = static_cast<bool>(other);
+            }
+
+            operator bool() const noexcept
+            {
+                return (block & mask) != 0;
+            }
+
+            bool operator~() const noexcept
+            {
+                return !bool(*this);
+            }
+
+            reference &flip() noexcept
+            {
+                block ^= mask;
+                return *this;
+            }
+
+        private:
+            Block &block;
+            Block mask;
+        };
+
+        /* constructors */
+        dynamic_bitset() : dynamic_bitset(Allocator()) {}
+
+        explicit dynamic_bitset(const Allocator &alloc) : allocator(alloc), blocks(nullptr), num_bits(0),
+                                                          num_blocks(0) {}
+
+        explicit dynamic_bitset(size_type nbits, bool value = false,
+                                const Allocator &alloc = Allocator()) : dynamic_bitset(alloc)
+        {
+            resize(nbits, value);
+        }
+
+        dynamic_bitset(const dynamic_bitset &other) : allocator(other.allocator), num_bits(other.num_bits),
+                                                      num_blocks(other.num_blocks)
+        {
+            if (num_blocks > 0)
+            {
+                blocks = allocate(num_blocks);
+                std::copy(other.blocks, other.blocks + num_blocks, blocks);
+            }
+            else
+            {
+                blocks = nullptr;
+            }
+        }
+
+        dynamic_bitset(dynamic_bitset &&other) noexcept : allocator(std::move(other.allocator)), blocks(other.blocks),
+                                                          num_bits(other.num_bits), num_blocks(other.num_blocks)
+        {
+            other.blocks = nullptr;
+            other.num_bits = 0;
+            other.num_blocks = 0;
+        }
+
+        template<typename CharT, typename Traits, typename Alloc>
+        explicit dynamic_bitset(const std::basic_string<CharT, Traits, Alloc> &str,
+                                typename std::basic_string<CharT, Traits, Alloc>::size_type pos = 0,
+                                typename std::basic_string<CharT, Traits, Alloc>::size_type n = std::basic_string<CharT,
+                                    Traits, Alloc>::npos,
+                                CharT zero_char = CharT('0'),
+                                CharT one_char = CharT('1'),
+                                const Allocator &alloc = Allocator()) : dynamic_bitset(alloc)
+        {
+            if (pos > str.size())
+                throw std::out_of_range("dynamic_bitset string constructor");
+
+            size_type rlen = std::min(n, str.size() - pos);
+            resize(rlen);
+
+            for (size_type i = 0; i < rlen; ++i)
+            {
+                CharT c = str[pos + rlen - 1 - i];
+                if (c == one_char)
+                    set(i);
+                else if (c != zero_char)
+                    throw std::invalid_argument("dynamic_bitset string constructor");
+            }
+        }
+
+        /* constructor from C-string */
+        explicit dynamic_bitset(const char *str, const Allocator &alloc = Allocator()) : dynamic_bitset(
+            std::string(str), 0, std::string::npos, '0', '1', alloc) {}
+
+        ~dynamic_bitset()
+        {
+            deallocate(blocks, num_blocks);
+        }
+
+        /* assignment */
+        dynamic_bitset &operator=(const dynamic_bitset &other)
+        {
+            if (this != &other)
+            {
+                if (num_blocks < other.num_blocks)
+                {
+                    Block *new_blocks = allocate(other.num_blocks);
+                    deallocate(blocks, num_blocks);
+                    blocks = new_blocks;
+                }
+
+                num_bits = other.num_bits;
+                num_blocks = other.num_blocks;
+
+                if (num_blocks > 0)
+                    std::copy(other.blocks, other.blocks + num_blocks, blocks);
+            }
+            return *this;
+        }
+
+        dynamic_bitset &operator=(dynamic_bitset &&other) noexcept
+        {
+            if (this != &other)
+            {
+                deallocate(blocks, num_blocks);
+
+                allocator = std::move(other.allocator);
+                blocks = other.blocks;
+                num_bits = other.num_bits;
+                num_blocks = other.num_blocks;
+
+                other.blocks = nullptr;
+                other.num_bits = 0;
+                other.num_blocks = 0;
+            }
+            return *this;
+        }
+
+        /* element access */
+        reference operator[](size_type pos)
+        {
+            return reference(blocks[block_index(pos)], bit_index(pos));
+        }
+
+        bool operator[](size_type pos) const
+        {
+            return test(pos);
+        }
+
+        [[nodiscard]]
+        bool test(size_type pos) const
+        {
+            if (pos >= num_bits)
+                throw std::out_of_range("dynamic_bitset::test");
+            return (blocks[block_index(pos)] & bit_mask(pos)) != 0;
+        }
+
+        /* capacity */
+        [[nodiscard]] size_type size() const noexcept
+        {
+            return num_bits;
+        }
+
+        [[nodiscard]] size_type num_blocks_val() const noexcept
+        {
+            return num_blocks;
+        }
+
+        [[nodiscard]] bool empty() const noexcept
+        {
+            return num_bits == 0;
+        }
+
+        [[nodiscard]] static size_type max_size() noexcept
+        {
+            return std::numeric_limits<size_type>::max();
+        }
+
+        /* modifiers */
+        void resize(size_type nbits, bool value = false)
+        {
+            if (nbits == num_bits)
+                return;
+
+            size_type new_blocks = blocks_required(nbits);
+            if (new_blocks != num_blocks)
+            {
+                Block *new_data = new_blocks > 0 ? allocate(new_blocks) : nullptr;
+
+                if (blocks)
+                {
+                    size_type copy_blocks = std::min(num_blocks, new_blocks);
+                    std::copy(blocks, blocks + copy_blocks, new_data);
+                    deallocate(blocks, num_blocks);
+                }
+
+                blocks = new_data;
+
+                /* initialize new blocks if expanding */
+                if (new_blocks > num_blocks)
+                {
+                    std::fill(blocks + num_blocks, blocks + new_blocks,
+                              value ? one_block : zero_block);
+                }
+
+                num_blocks = new_blocks;
+            }
+
+            /* handle partial block at the end */
+            if (nbits > num_bits && value)
+            {
+                size_type old_bits = num_bits;
+                num_bits = nbits;
+
+                if (old_bits % bits_per_block != 0)
+                {
+                    size_type block_idx = block_index(old_bits);
+                    size_type bit_idx = bit_index(old_bits);
+                    Block mask = ~((Block(1) << bit_idx) - 1);
+                    blocks[block_idx] |= mask;
+                }
+            }
+            else
+            {
+                num_bits = nbits;
+            }
+
+            sanitize();
+        }
+
+        void clear() noexcept
+        {
+            deallocate(blocks, num_blocks);
+            blocks = nullptr;
+            num_bits = 0;
+            num_blocks = 0;
+        }
+
+        void push_back(bool value)
+        {
+            size_type new_bits = num_bits + 1;
+            size_type needed_blocks = blocks_required(new_bits);
+
+            if (needed_blocks > num_blocks)
+            {
+                resize(new_bits);
+                if (value)
+                    set(num_bits - 1);
+            }
+            else
+            {
+                num_bits = new_bits;
+                if (value)
+                    set(num_bits - 1);
+            }
+        }
+
+        void pop_back()
+        {
+            if (num_bits > 0)
+                resize(num_bits - 1);
+        }
+
+        /* bit operations */
+        dynamic_bitset &set(size_type pos, bool value = true)
+        {
+            if (pos >= num_bits)
+                throw std::out_of_range("dynamic_bitset::set");
+
+            if (value)
+                blocks[block_index(pos)] |= bit_mask(pos);
+            else
+                blocks[block_index(pos)] &= ~bit_mask(pos);
+
+            return *this;
+        }
+
+        dynamic_bitset &set()
+        {
+            if (num_blocks > 0)
+            {
+                std::fill(blocks, blocks + num_blocks, one_block);
+                sanitize();
+            }
+            return *this;
+        }
+
+        dynamic_bitset &reset(size_type pos)
+        {
+            return set(pos, false);
+        }
+
+        dynamic_bitset &reset()
+        {
+            if (num_blocks > 0)
+                std::fill(blocks, blocks + num_blocks, zero_block);
+            return *this;
+        }
+
+        dynamic_bitset &flip(size_type pos)
+        {
+            if (pos >= num_bits)
+                throw std::out_of_range("dynamic_bitset::flip");
+
+            blocks[block_index(pos)] ^= bit_mask(pos);
+            return *this;
+        }
+
+        dynamic_bitset &flip()
+        {
+            for (size_type i = 0; i < num_blocks; ++i)
+                blocks[i] = ~blocks[i];
+            sanitize();
+            return *this;
+        }
+
+        /* bitwise operations */
+        dynamic_bitset &operator&=(const dynamic_bitset &other)
+        {
+            if (size() != other.size())
+                throw std::invalid_argument("dynamic_bitset sizes must match");
+
+            for (size_type i = 0; i < num_blocks; ++i)
+                blocks[i] &= other.blocks[i];
+
+            return *this;
+        }
+
+        dynamic_bitset &operator|=(const dynamic_bitset &other)
+        {
+            if (size() != other.size())
+                throw std::invalid_argument("dynamic_bitset sizes must match");
+
+            for (size_type i = 0; i < num_blocks; ++i)
+                blocks[i] |= other.blocks[i];
+
+            return *this;
+        }
+
+        dynamic_bitset &operator^=(const dynamic_bitset &other)
+        {
+            if (size() != other.size())
+                throw std::invalid_argument("dynamic_bitset sizes must match");
+
+            for (size_type i = 0; i < num_blocks; ++i)
+                blocks[i] ^= other.blocks[i];
+
+            return *this;
+        }
+
+        dynamic_bitset operator~() const
+        {
+            dynamic_bitset result(*this);
+            result.flip();
+            return result;
+        }
+
+        /* shift operations */
+        dynamic_bitset &operator<<=(size_type shift)
+        {
+            if (shift >= num_bits)
+                return reset();
+
+            if (shift == 0)
+                return *this;
+
+            const size_type block_shift = shift / bits_per_block;
+            const size_type bit_shift = shift % bits_per_block;
+
+            if (bit_shift == 0)
+            {
+                for (size_type i = num_blocks - 1; i >= block_shift; --i)
+                    blocks[i] = blocks[i - block_shift];
+            }
+            else
+            {
+                const size_type reverse_bit_shift = bits_per_block - bit_shift;
+                for (size_type i = num_blocks - 1; i > block_shift; --i)
+                    blocks[i] = (blocks[i - block_shift] << bit_shift) |
+                                (blocks[i - block_shift - 1] >> reverse_bit_shift);
+                blocks[block_shift] = blocks[0] << bit_shift;
+            }
+
+            std::fill(blocks, blocks + block_shift, zero_block);
+            sanitize();
+            return *this;
+        }
+
+        dynamic_bitset &operator>>=(size_type shift)
+        {
+            if (shift >= num_bits)
+                return reset();
+
+            if (shift == 0)
+                return *this;
+
+            const size_type block_shift = shift / bits_per_block;
+            const size_type bit_shift = shift % bits_per_block;
+
+            if (bit_shift == 0)
+            {
+                for (size_type i = 0; i < num_blocks - block_shift; ++i)
+                    blocks[i] = blocks[i + block_shift];
+            }
+            else
+            {
+                const size_type reverse_bit_shift = bits_per_block - bit_shift;
+                for (size_type i = 0; i < num_blocks - block_shift - 1; ++i)
+                    blocks[i] = (blocks[i + block_shift] >> bit_shift) |
+                                (blocks[i + block_shift + 1] << reverse_bit_shift);
+                blocks[num_blocks - block_shift - 1] = blocks[num_blocks - 1] >> bit_shift;
+            }
+
+            std::fill(blocks + num_blocks - block_shift, blocks + num_blocks, zero_block);
+            return *this;
+        }
+
+        dynamic_bitset operator<<(size_type shift) const
+        {
+            dynamic_bitset result(*this);
+            result <<= shift;
+            return result;
+        }
+
+        dynamic_bitset operator>>(size_type shift) const
+        {
+            dynamic_bitset result(*this);
+            result >>= shift;
+            return result;
+        }
+
+        /* counting operations */
+        [[nodiscard]] size_type count() const noexcept
+        {
+            size_type result = 0;
+            for (size_type i = 0; i < num_blocks; ++i)
+                result += popcount(blocks[i]);
+            return result;
+        }
+
+        [[nodiscard]] bool all() const noexcept
+        {
+            if (empty())
+                return true;
+
+            /* check full blocks */
+            for (size_type i = 0; i < num_blocks - 1; ++i)
+                if (blocks[i] != one_block)
+                    return false;
+
+            /* check last block */
+            size_type extra_bits = num_bits % bits_per_block;
+            if (extra_bits == 0)
+                return blocks[num_blocks - 1] == one_block;
+            else
+                return (blocks[num_blocks - 1] & ((Block(1) << extra_bits) - 1)) ==
+                       ((Block(1) << extra_bits) - 1);
+        }
+
+        [[nodiscard]] bool any() const noexcept
+        {
+            for (size_type i = 0; i < num_blocks; ++i)
+                if (blocks[i] != zero_block)
+                    return true;
+            return false;
+        }
+
+        [[nodiscard]] bool none() const noexcept
+        {
+            return !any();
+        }
+
+        /* conversions */
+        template<typename CharT = char, typename Traits = std::char_traits<CharT>,
+            typename Alloc = std::allocator<CharT> >
+        std::basic_string<CharT, Traits, Alloc> to_string(CharT zero_char = CharT('0'),
+                                                          CharT one_char = CharT('1')) const
+        {
+            std::basic_string<CharT, Traits, Alloc> result;
+            result.reserve(num_bits);
+
+            for (size_type i = num_bits; i > 0; --i)
+                result.push_back(test(i - 1) ? one_char : zero_char);
+
+            return result;
+        }
+
+        [[nodiscard]]
+        unsigned long to_ulong() const
+        {
+            if (num_bits == 0)
+                return 0;
+
+            if (num_bits > sizeof(unsigned long) * CHAR_BIT)
+                throw std::overflow_error("dynamic_bitset::to_ulong");
+
+            unsigned long result = 0;
+            for (size_type i = 0; i < num_blocks && i < sizeof(unsigned long) / sizeof(Block); ++i)
+                result |= static_cast<unsigned long>(blocks[i]) << (i * bits_per_block);
+
+            return result;
+        }
+
+        [[nodiscard]]
+        unsigned long long to_ullong() const
+        {
+            if (num_bits == 0)
+                return 0;
+
+            if (num_bits > sizeof(unsigned long long) * CHAR_BIT)
+                throw std::overflow_error("dynamic_bitset::to_ullong");
+
+            unsigned long long result = 0;
+            for (size_type i = 0; i < num_blocks && i < sizeof(unsigned long long) / sizeof(Block); ++i)
+                result |= static_cast<unsigned long long>(blocks[i]) << (i * bits_per_block);
+
+            return result;
+        }
+
+        /* comparison */
+        bool operator==(const dynamic_bitset &other) const
+        {
+            if (num_bits != other.num_bits)
+                return false;
+
+            for (size_type i = 0; i < num_blocks; ++i)
+                if (blocks[i] != other.blocks[i])
+                    return false;
+
+            return true;
+        }
+
+        bool operator!=(const dynamic_bitset &other) const
+        {
+            return !(*this == other);
+        }
+
+        void swap(dynamic_bitset &other) noexcept
+        {
+            std::swap(allocator, other.allocator);
+            std::swap(blocks, other.blocks);
+            std::swap(num_bits, other.num_bits);
+            std::swap(num_blocks, other.num_blocks);
+        }
+
+    private:
+        Allocator allocator;
+        Block *blocks;
+        size_type num_bits;
+        size_type num_blocks;
+
+        static size_type blocks_required(size_type nbits)
+        {
+            return (nbits + bits_per_block - 1) / bits_per_block;
+        }
+
+        static size_type block_index(size_type pos)
+        {
+            return pos / bits_per_block;
+        }
+
+        static size_type bit_index(size_type pos)
+        {
+            return pos % bits_per_block;
+        }
+
+        static Block bit_mask(size_type pos)
+        {
+            return Block(1) << bit_index(pos);
+        }
+
+        Block *allocate(size_type n)
+        {
+            return std::allocator_traits<Allocator>::allocate(allocator, n);
+        }
+
+        void deallocate(Block *p, size_type n)
+        {
+            if (p)
+                std::allocator_traits<Allocator>::deallocate(allocator, p, n);
+        }
+
+        void sanitize()
+        {
+            /* clear unused bits in the last block */
+            size_type extra_bits = num_bits % bits_per_block;
+            if (extra_bits > 0 && num_blocks > 0)
+                blocks[num_blocks - 1] &= (Block(1) << extra_bits) - 1;
+        }
+
+        static size_type popcount(Block block)
+        {
+            /* use __builtin_popcount if available */
+#if defined(__GNUC__) || defined(__clang__)
+            if constexpr (sizeof(Block) <= sizeof(unsigned int))
+                return __builtin_popcount(block);
+            else if constexpr (sizeof(Block) <= sizeof(unsigned long))
+                return __builtin_popcountl(block);
+            else if constexpr (sizeof(Block) <= sizeof(unsigned long long))
+                return __builtin_popcountll(block);
+#endif
+
+            /* fallback implementation */
+            size_type count = 0;
+            while (block)
+            {
+                count += block & 1;
+                block >>= 1;
+            }
+            return count;
+        }
+    };
+
+    /* non-member functions */
+    template<typename Block, typename Allocator>
+    dynamic_bitset<Block, Allocator> operator&(const dynamic_bitset<Block, Allocator> &a,
+                                               const dynamic_bitset<Block, Allocator> &b)
+    {
+        dynamic_bitset<Block, Allocator> result(a);
+        result &= b;
+        return result;
+    }
+
+    template<typename Block, typename Allocator>
+    dynamic_bitset<Block, Allocator> operator|(const dynamic_bitset<Block, Allocator> &a,
+                                               const dynamic_bitset<Block, Allocator> &b)
+    {
+        dynamic_bitset<Block, Allocator> result(a);
+        result |= b;
+        return result;
+    }
+
+    template<typename Block, typename Allocator>
+    dynamic_bitset<Block, Allocator> operator^(const dynamic_bitset<Block, Allocator> &a,
+                                               const dynamic_bitset<Block, Allocator> &b)
+    {
+        dynamic_bitset<Block, Allocator> result(a);
+        result ^= b;
+        return result;
+    }
+
+    template<typename Block, typename Allocator>
+    void swap(dynamic_bitset<Block, Allocator> &a, dynamic_bitset<Block, Allocator> &b) noexcept
+    {
+        a.swap(b);
+    }
+}
