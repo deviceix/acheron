@@ -47,6 +47,7 @@ if (ACHERON_BUILD_TEST)
             tests/map.cpp
             tests/queue.cpp
             tests/stack.cpp
+            tests/stack.cpp
             tests/string.cpp
             tests/unordered_map.cpp
             tests/vector.cpp

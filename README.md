@@ -68,7 +68,7 @@ The project is actively being developed. The API aims for standard library compa
 | Atomic Operations     | Complete | Memory ordering, thread safety         |
 | Hash Containers       | Complete | unordered_map with Robin Hood hashing  |
 | Dynamic Containers    | Complete | deque, dynamic_bitset                  |
-| Ordered Containers    | Planned  | map, set                               |
+| Ordered Containers    | Complete | map, set                               |
 | Stack/Queue Adapters  | Complete | stack, queue                           |
 | Algorithms            | Planned  | Sorting, searching, transformations    |
 | Concurrent Containers | Planned  | Thread-safe variants of all containers |

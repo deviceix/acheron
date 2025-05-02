@@ -417,7 +417,7 @@ namespace ach
             if (pos < sz)
             {
                 std::construct_at(data + sz, std::move(data[sz - 1]));
-                for (size_type i = sz - 1; i > pos; --i)
+                for (std::ptrdiff_t i = sz - 1; i > static_cast<std::ptrdiff_t>(pos); --i)
                     data[i] = std::move(data[i - 1]);
                 data[pos] = value;
             }
@@ -438,7 +438,7 @@ namespace ach
             if (pos < sz)
             {
                 std::construct_at(data + sz, std::move(data[sz - 1]));
-                for (size_type i = sz - 1; i > pos; --i)
+                for (std::ptrdiff_t i = sz - 1; i > static_cast<std::ptrdiff_t>(pos); --i)
                     data[i] = std::move(data[i - 1]);
                 data[pos] = std::move(value);
             }
@@ -461,10 +461,10 @@ namespace ach
 
             if (pos < sz)
             {
-                size_type elements_to_move = sz - pos;
-                if (count < elements_to_move)
+                if (const size_type elements_to_move = sz - pos;
+                    count < elements_to_move)
                 {
-                    for (size_type i = sz + count - 1; i >= pos + count; --i)
+                    for (size_type i = sz + count; i-- > pos + count;)
                         std::construct_at(data + i, std::move(data[i - count]));
                     for (size_type i = 0; i < count; ++i)
                         data[pos + i] = value;
@@ -550,7 +550,7 @@ namespace ach
             if (pos < sz)
             {
                 std::construct_at(data + sz, std::move(data[sz - 1]));
-                for (size_type i = sz - 1; i > pos; --i)
+                for (std::ptrdiff_t i = sz - 1; i > static_cast<std::ptrdiff_t>(pos); --i)
                     data[i] = std::move(data[i - 1]);
                 std::destroy_at(data + pos);
                 std::construct_at(data + pos, std::forward<Args>(args)...);

@@ -1,0 +1,911 @@
+/* this file is a part of Acheron library which is under MIT license; see LICENSE for more info */
+
+// ReSharper disable CppNonExplicitConvertingConstructor
+#pragma once
+
+#include <algorithm>
+#include <functional>
+#include <initializer_list>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <acheron/__libdef.hpp>
+#include <acheron/__memory/allocator.hpp>
+
+namespace ach
+{
+    template<
+        typename Key,
+        typename Compare = std::less<Key>,
+        typename Allocator = allocator<Key>
+    >
+    class set
+    {
+    public:
+        using key_type = Key;
+        using value_type = Key;
+        using size_type = size_t;
+        using difference_type = ptrdiff_t;
+        using key_compare = Compare;
+        using value_compare = Compare;
+        using allocator_type = Allocator;
+        using reference = value_type&;
+        using const_reference = const value_type&;
+        using pointer = typename std::allocator_traits<Allocator>::pointer;
+        using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+
+    private:
+        enum class color { RED, BLACK };
+
+        struct node
+        {
+            value_type data;
+            node* parent;
+            node* left;
+            node* right;
+            color col;
+
+            template<typename... Args>
+            node(Args&&... args)
+                : data(std::forward<Args>(args)...),
+                  parent(nullptr), left(nullptr), right(nullptr),
+                  col(color::RED) {}
+        };
+
+        using node_allocator = typename std::allocator_traits<Allocator>::template rebind_alloc<node>;
+        using node_pointer = typename std::allocator_traits<node_allocator>::pointer;
+
+    public:
+        /* iterator class */
+        class iterator
+        {
+        public:
+            using difference_type = ptrdiff_t;
+            using value_type = set::value_type;
+            using pointer = set::const_pointer;
+            using reference = set::const_reference;
+            using iterator_category = std::bidirectional_iterator_tag;
+
+            iterator() : node_ptr(nullptr), owner_set(nullptr) {}
+            iterator(node* ptr, const set* owner) : node_ptr(ptr), owner_set(owner) {}
+
+            reference operator*() const { return node_ptr->data; }
+            pointer operator->() const { return &(node_ptr->data); }
+
+            iterator& operator++()
+            {
+                if (node_ptr->right)
+                {
+                    node_ptr = node_ptr->right;
+                    while (node_ptr->left)
+                        node_ptr = node_ptr->left;
+                }
+                else
+                {
+                    node* p = node_ptr->parent;
+                    while (p && node_ptr == p->right)
+                    {
+                        node_ptr = p;
+                        p = p->parent;
+                    }
+                    node_ptr = p;
+                }
+                return *this;
+            }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            iterator& operator--()
+            {
+                if (node_ptr == nullptr)
+                {
+                    /* go to the maximum element */
+                    node_ptr = maximum(owner_set->root);
+                    return *this;
+                }
+
+                if (node_ptr->left)
+                {
+                    node_ptr = node_ptr->left;
+                    while (node_ptr->right)
+                        node_ptr = node_ptr->right;
+                }
+                else
+                {
+                    node* p = node_ptr->parent;
+                    while (p && node_ptr == p->left)
+                    {
+                        node_ptr = p;
+                        p = p->parent;
+                    }
+                    node_ptr = p;
+                }
+                return *this;
+            }
+
+            iterator operator--(int)
+            {
+                iterator tmp = *this;
+                --(*this);
+                return tmp;
+            }
+
+            bool operator==(const iterator& other) const { return node_ptr == other.node_ptr; }
+            bool operator!=(const iterator& other) const { return node_ptr != other.node_ptr; }
+
+        private:
+            node* node_ptr;
+            const set* owner_set;
+            friend class set;
+        };
+
+        /* const_iterator class - identical to iterator for set */
+        using const_iterator = iterator;
+        using reverse_iterator = std::reverse_iterator<iterator>;
+        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+        /* constructors */
+        set() : set(Compare()) {}
+
+        explicit set(const Compare& comp, const Allocator& alloc = Allocator())
+            : root(nullptr), comp(comp), alloc(alloc), node_alloc(alloc), sz(0) {}
+
+        template<typename InputIt>
+        set(InputIt first, InputIt last, const Compare& comp = Compare(),
+            const Allocator& alloc = Allocator())
+            : set(comp, alloc)
+        {
+            insert(first, last);
+        }
+
+        set(const set& other) : set(other.comp, other.alloc)
+        {
+            for (const auto& item : other)
+                insert(item);
+        }
+
+        set(set&& other) noexcept
+            : root(other.root), comp(std::move(other.comp)),
+              alloc(std::move(other.alloc)), node_alloc(std::move(other.node_alloc)),
+              sz(other.sz)
+        {
+            other.root = nullptr;
+            other.sz = 0;
+        }
+
+        set(std::initializer_list<value_type> init,
+            const Compare& comp = Compare(), const Allocator& alloc = Allocator())
+            : set(comp, alloc)
+        {
+            insert(init.begin(), init.end());
+        }
+
+        ~set()
+        {
+            clear();
+        }
+
+        /* assignment */
+        set& operator=(const set& other)
+        {
+            if (this != &other)
+            {
+                clear();
+                comp = other.comp;
+                for (const auto& item : other)
+                    insert(item);
+            }
+            return *this;
+        }
+
+        set& operator=(set&& other) noexcept
+        {
+            if (this != &other)
+            {
+                clear();
+                root = other.root;
+                comp = std::move(other.comp);
+                alloc = std::move(other.alloc);
+                node_alloc = std::move(other.node_alloc);
+                sz = other.sz;
+                other.root = nullptr;
+                other.sz = 0;
+            }
+            return *this;
+        }
+
+        set& operator=(std::initializer_list<value_type> ilist)
+        {
+            clear();
+            insert(ilist.begin(), ilist.end());
+            return *this;
+        }
+
+        /* allocator */
+        allocator_type get_allocator() const noexcept { return alloc; }
+
+        /* iterators */
+        iterator begin() noexcept
+        {
+            return iterator(minimum(root), this);
+        }
+
+        const_iterator begin() const noexcept
+        {
+            return const_iterator(minimum(root), this);
+        }
+
+        iterator end() noexcept
+        {
+            return iterator(nullptr, this);
+        }
+
+        const_iterator end() const noexcept
+        {
+            return const_iterator(nullptr, this);
+        }
+
+        reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+        const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+        reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+        const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+
+        const_iterator cbegin() const noexcept { return begin(); }
+        const_iterator cend() const noexcept { return end(); }
+        const_reverse_iterator crbegin() const noexcept { return rbegin(); }
+        const_reverse_iterator crend() const noexcept { return rend(); }
+
+        /* capacity */
+        [[nodiscard]] bool empty() const noexcept { return sz == 0; }
+        [[nodiscard]] size_type size() const noexcept { return sz; }
+        [[nodiscard]] static size_type max_size() noexcept
+        {
+            return std::numeric_limits<size_type>::max() / sizeof(node);
+        }
+
+        /* modifiers */
+        void clear() noexcept
+        {
+            destroy_tree(root);
+            root = nullptr;
+            sz = 0;
+        }
+
+        std::pair<iterator, bool> insert(const value_type& value)
+        {
+            /* check if key already exists */
+            node* existing = find_node(value);
+            if (existing)
+                return {iterator(existing, this), false};
+
+            /* create new node and insert */
+            node* new_node = create_node(value);
+            return insert_node_helper(new_node);
+        }
+
+        std::pair<iterator, bool> insert(value_type&& value)
+        {
+            /* check if key already exists */
+            node* existing = find_node(value);
+            if (existing)
+                return {iterator(existing, this), false};
+
+            /* create new node and insert */
+            node* new_node = create_node(std::move(value));
+            return insert_node_helper(new_node);
+        }
+
+        iterator insert(const_iterator hint, const value_type& value)
+        {
+            /* For now, hint is ignored - optimization could be added later */
+            (void)hint;
+            return insert(value).first;
+        }
+
+        iterator insert(const_iterator hint, value_type&& value)
+        {
+            /* For now, hint is ignored - optimization could be added later */
+            (void)hint;
+            return insert(std::move(value)).first;
+        }
+
+        template<typename InputIt>
+        void insert(InputIt first, InputIt last)
+        {
+            for (; first != last; ++first)
+                insert(*first);
+        }
+
+        void insert(std::initializer_list<value_type> ilist)
+        {
+            insert(ilist.begin(), ilist.end());
+        }
+
+        template<typename... Args>
+        std::pair<iterator, bool> emplace(Args&&... args)
+        {
+            node* new_node = create_node(std::forward<Args>(args)...);
+            node* existing = find_node(new_node->data);
+
+            if (existing)
+            {
+                destroy_node(new_node);
+                return {iterator(existing, this), false};
+            }
+
+            return insert_node_helper(new_node);
+        }
+
+        template<typename... Args>
+        iterator emplace_hint(const_iterator hint, Args&&... args)
+        {
+            /* For now, hint is ignored - optimization could be added later */
+            (void)hint;
+            return emplace(std::forward<Args>(args)...).first;
+        }
+
+        iterator erase(const_iterator pos)
+        {
+            if (pos == cend())
+                return end();
+
+            node* to_delete = const_cast<node*>(pos.node_ptr);
+            iterator next(to_delete, this);
+            ++next;
+
+            delete_node(to_delete);
+            return next;
+        }
+
+        iterator erase(const_iterator first, const_iterator last)
+        {
+            iterator it(const_cast<node*>(first.node_ptr), this);
+            while (it != last)
+                it = erase(it);
+            return it;
+        }
+
+        size_type erase(const key_type& key)
+        {
+            node* n = find_node(key);
+            if (!n)
+                return 0;
+
+            delete_node(n);
+            return 1;
+        }
+
+        void swap(set& other) noexcept
+        {
+            std::swap(root, other.root);
+            std::swap(comp, other.comp);
+            std::swap(alloc, other.alloc);
+            std::swap(node_alloc, other.node_alloc);
+            std::swap(sz, other.sz);
+        }
+
+        /* lookup */
+        size_type count(const key_type& key) const
+        {
+            return find_node(key) ? 1 : 0;
+        }
+
+        iterator find(const key_type& key)
+        {
+            return iterator(find_node(key), this);
+        }
+
+        const_iterator find(const key_type& key) const
+        {
+            return const_iterator(find_node(key), this);
+        }
+
+        bool contains(const key_type& key) const
+        {
+            return find_node(key) != nullptr;
+        }
+
+        std::pair<iterator, iterator> equal_range(const key_type& key)
+        {
+            iterator lower = lower_bound(key);
+            iterator upper = upper_bound(key);
+            return {lower, upper};
+        }
+
+        std::pair<const_iterator, const_iterator> equal_range(const key_type& key) const
+        {
+            const_iterator lower = lower_bound(key);
+            const_iterator upper = upper_bound(key);
+            return {lower, upper};
+        }
+
+        iterator lower_bound(const key_type& key)
+        {
+            node* curr = root;
+            node* result = nullptr;
+
+            while (curr)
+            {
+                if (!comp(curr->data, key))
+                {
+                    result = curr;
+                    curr = curr->left;
+                }
+                else
+                {
+                    curr = curr->right;
+                }
+            }
+
+            return iterator(result, this);
+        }
+
+        const_iterator lower_bound(const key_type& key) const
+        {
+            const node* curr = root;
+            const node* result = nullptr;
+
+            while (curr)
+            {
+                if (!comp(curr->data, key))
+                {
+                    result = curr;
+                    curr = curr->left;
+                }
+                else
+                {
+                    curr = curr->right;
+                }
+            }
+
+            return const_iterator(const_cast<node*>(result), this);
+        }
+
+        iterator upper_bound(const key_type& key)
+        {
+            node* curr = root;
+            node* result = nullptr;
+
+            while (curr)
+            {
+                if (comp(key, curr->data))
+                {
+                    result = curr;
+                    curr = curr->left;
+                }
+                else
+                {
+                    curr = curr->right;
+                }
+            }
+
+            return iterator(result, this);
+        }
+
+        const_iterator upper_bound(const key_type& key) const
+        {
+            const node* curr = root;
+            const node* result = nullptr;
+
+            while (curr)
+            {
+                if (comp(key, curr->data))
+                {
+                    result = curr;
+                    curr = curr->left;
+                }
+                else
+                {
+                    curr = curr->right;
+                }
+            }
+
+            return const_iterator(const_cast<node*>(result), this);
+        }
+
+        /* observers */
+        key_compare key_comp() const { return comp; }
+        value_compare value_comp() const { return comp; }
+
+    private:
+        node* root;
+        Compare comp;
+        Allocator alloc;
+        node_allocator node_alloc;
+        size_type sz;
+
+        template<typename... Args>
+        node* create_node(Args&&... args)
+        {
+            node* new_node = std::allocator_traits<node_allocator>::allocate(node_alloc, 1);
+            try
+            {
+                std::allocator_traits<node_allocator>::construct(node_alloc, new_node,
+                                                               std::forward<Args>(args)...);
+            }
+            catch (...)
+            {
+                std::allocator_traits<node_allocator>::deallocate(node_alloc, new_node, 1);
+                throw;
+            }
+            return new_node;
+        }
+
+        void destroy_node(node* n)
+        {
+            std::allocator_traits<node_allocator>::destroy(node_alloc, n);
+            std::allocator_traits<node_allocator>::deallocate(node_alloc, n, 1);
+        }
+
+        void destroy_tree(node* n)
+        {
+            if (n)
+            {
+                destroy_tree(n->left);
+                destroy_tree(n->right);
+                destroy_node(n);
+            }
+        }
+
+        std::pair<iterator, bool> insert_node_helper(node* new_node)
+        {
+            if (!root)
+            {
+                root = new_node;
+                new_node->col = color::BLACK;
+            }
+            else
+            {
+                node* parent = nullptr;
+                node* curr = root;
+
+                while (curr)
+                {
+                    parent = curr;
+                    if (comp(new_node->data, curr->data))
+                        curr = curr->left;
+                    else
+                        curr = curr->right;
+                }
+
+                new_node->parent = parent;
+                if (comp(new_node->data, parent->data))
+                    parent->left = new_node;
+                else
+                    parent->right = new_node;
+
+                fix_insert(new_node);
+            }
+
+            ++sz;
+            return {iterator(new_node, this), true};
+        }
+
+        void rotate_left(node* x)
+        {
+            node* y = x->right;
+            x->right = y->left;
+
+            if (y->left)
+                y->left->parent = x;
+
+            y->parent = x->parent;
+
+            if (!x->parent)
+                root = y;
+            else if (x == x->parent->left)
+                x->parent->left = y;
+            else
+                x->parent->right = y;
+
+            y->left = x;
+            x->parent = y;
+        }
+
+        void rotate_right(node* x)
+        {
+            node* y = x->left;
+            x->left = y->right;
+
+            if (y->right)
+                y->right->parent = x;
+
+            y->parent = x->parent;
+
+            if (!x->parent)
+                root = y;
+            else if (x == x->parent->right)
+                x->parent->right = y;
+            else
+                x->parent->left = y;
+
+            y->right = x;
+            x->parent = y;
+        }
+
+        void fix_insert(node* z)
+        {
+            while (z->parent && z->parent->col == color::RED)
+            {
+                if (z->parent == z->parent->parent->left)
+                {
+                    node* y = z->parent->parent->right;
+                    if (y && y->col == color::RED)
+                    {
+                        z->parent->col = color::BLACK;
+                        y->col = color::BLACK;
+                        z->parent->parent->col = color::RED;
+                        z = z->parent->parent;
+                    }
+                    else
+                    {
+                        if (z == z->parent->right)
+                        {
+                            z = z->parent;
+                            rotate_left(z);
+                        }
+                        z->parent->col = color::BLACK;
+                        z->parent->parent->col = color::RED;
+                        rotate_right(z->parent->parent);
+                    }
+                }
+                else
+                {
+                    node* y = z->parent->parent->left;
+                    if (y && y->col == color::RED)
+                    {
+                        z->parent->col = color::BLACK;
+                        y->col = color::BLACK;
+                        z->parent->parent->col = color::RED;
+                        z = z->parent->parent;
+                    }
+                    else
+                    {
+                        if (z == z->parent->left)
+                        {
+                            z = z->parent;
+                            rotate_right(z);
+                        }
+                        z->parent->col = color::BLACK;
+                        z->parent->parent->col = color::RED;
+                        rotate_left(z->parent->parent);
+                    }
+                }
+            }
+            root->col = color::BLACK;
+        }
+
+        void transplant(node* u, node* v)
+        {
+            if (!u->parent)
+                root = v;
+            else if (u == u->parent->left)
+                u->parent->left = v;
+            else
+                u->parent->right = v;
+
+            if (v)
+                v->parent = u->parent;
+        }
+
+        void delete_node(node* z)
+        {
+            node* y = z;
+            node* x = nullptr;
+            color y_original_color = y->col;
+
+            if (!z->left)
+            {
+                x = z->right;
+                transplant(z, z->right);
+            }
+            else if (!z->right)
+            {
+                x = z->left;
+                transplant(z, z->left);
+            }
+            else
+            {
+                y = minimum(z->right);
+                y_original_color = y->col;
+                x = y->right;
+
+                if (y->parent == z)
+                {
+                    if (x)
+                        x->parent = y;
+                }
+                else
+                {
+                    transplant(y, y->right);
+                    y->right = z->right;
+                    if (y->right)
+                        y->right->parent = y;
+                }
+
+                transplant(z, y);
+                y->left = z->left;
+                y->left->parent = y;
+                y->col = z->col;
+            }
+
+            if (y_original_color == color::BLACK && x)
+                fix_delete(x);
+
+            destroy_node(z);
+            --sz;
+        }
+
+        void fix_delete(node* x)
+        {
+            while (x != root && x->col == color::BLACK)
+            {
+                if (x == x->parent->left)
+                {
+                    node* w = x->parent->right;
+                    if (w->col == color::RED)
+                    {
+                        w->col = color::BLACK;
+                        x->parent->col = color::RED;
+                        rotate_left(x->parent);
+                        w = x->parent->right;
+                    }
+
+                    if ((!w->left || w->left->col == color::BLACK) &&
+                        (!w->right || w->right->col == color::BLACK))
+                    {
+                        w->col = color::RED;
+                        x = x->parent;
+                    }
+                    else
+                    {
+                        if (!w->right || w->right->col == color::BLACK)
+                        {
+                            if (w->left)
+                                w->left->col = color::BLACK;
+                            w->col = color::RED;
+                            rotate_right(w);
+                            w = x->parent->right;
+                        }
+
+                        w->col = x->parent->col;
+                        x->parent->col = color::BLACK;
+                        if (w->right)
+                            w->right->col = color::BLACK;
+                        rotate_left(x->parent);
+                        x = root;
+                    }
+                }
+                else
+                {
+                    node* w = x->parent->left;
+                    if (w->col == color::RED)
+                    {
+                        w->col = color::BLACK;
+                        x->parent->col = color::RED;
+                        rotate_right(x->parent);
+                        w = x->parent->left;
+                    }
+
+                    if ((!w->right || w->right->col == color::BLACK) &&
+                        (!w->left || w->left->col == color::BLACK))
+                    {
+                        w->col = color::RED;
+                        x = x->parent;
+                    }
+                    else
+                    {
+                        if (!w->left || w->left->col == color::BLACK)
+                        {
+                            if (w->right)
+                                w->right->col = color::BLACK;
+                            w->col = color::RED;
+                            rotate_left(w);
+                            w = x->parent->left;
+                        }
+
+                        w->col = x->parent->col;
+                        x->parent->col = color::BLACK;
+                        if (w->left)
+                            w->left->col = color::BLACK;
+                        rotate_right(x->parent);
+                        x = root;
+                    }
+                }
+            }
+            x->col = color::BLACK;
+        }
+
+        node* find_node(const key_type& key) const
+        {
+            node* curr = root;
+            while (curr)
+            {
+                if (comp(key, curr->data))
+                    curr = curr->left;
+                else if (comp(curr->data, key))
+                    curr = curr->right;
+                else
+                    return curr;
+            }
+            return nullptr;
+        }
+
+        static node* minimum(node* n)
+        {
+            if (!n)
+                return nullptr;
+            while (n->left)
+                n = n->left;
+            return n;
+        }
+
+        static node* maximum(node* n)
+        {
+            if (!n)
+                return nullptr;
+            while (n->right)
+                n = n->right;
+            return n;
+        }
+    };
+
+    /* non-member functions for ach::set */
+    template<typename Key, typename Compare, typename Alloc>
+    bool operator==(const set<Key, Compare, Alloc>& lhs,
+                    const set<Key, Compare, Alloc>& rhs)
+    {
+        if (lhs.size() != rhs.size())
+            return false;
+        return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+    }
+
+    template<typename Key, typename Compare, typename Alloc>
+    bool operator!=(const set<Key, Compare, Alloc>& lhs,
+                    const set<Key, Compare, Alloc>& rhs)
+    {
+        return !(lhs == rhs);
+    }
+
+    template<typename Key, typename Compare, typename Alloc>
+    bool operator<(const set<Key, Compare, Alloc>& lhs,
+                   const set<Key, Compare, Alloc>& rhs)
+    {
+        return std::lexicographical_compare(lhs.begin(), lhs.end(),
+                                          rhs.begin(), rhs.end());
+    }
+
+    template<typename Key, typename Compare, typename Alloc>
+    bool operator<=(const set<Key, Compare, Alloc>& lhs,
+                    const set<Key, Compare, Alloc>& rhs)
+    {
+        return !(rhs < lhs);
+    }
+
+    template<typename Key, typename Compare, typename Alloc>
+    bool operator>(const set<Key, Compare, Alloc>& lhs,
+                   const set<Key, Compare, Alloc>& rhs)
+    {
+        return rhs < lhs;
+    }
+
+    template<typename Key, typename Compare, typename Alloc>
+    bool operator>=(const set<Key, Compare, Alloc>& lhs,
+                    const set<Key, Compare, Alloc>& rhs)
+    {
+        return !(lhs < rhs);
+    }
+
+    template<typename Key, typename Compare, typename Alloc>
+    void swap(set<Key, Compare, Alloc>& lhs,
+              set<Key, Compare, Alloc>& rhs) noexcept
+    {
+        lhs.swap(rhs);
+    }
+}

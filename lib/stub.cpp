@@ -9,6 +9,7 @@
 #include <acheron/list>
 #include <acheron/memory>
 #include <acheron/queue>
+#include <acheron/set>
 #include <acheron/stack>
 #include <acheron/string>
 #include <acheron/unordered_map>
